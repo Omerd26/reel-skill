@@ -1,0 +1,33 @@
+{
+  "name": "reel-renderer",
+  "version": "1.0.0",
+  "description": "Remotion-based Instagram Reel video renderer",
+  "type": "module",
+  "scripts": {
+    "preview": "remotion studio",
+    "render": "node render.mjs",
+    "test-render": "node render.mjs --test"
+  },
+  "dependencies": {
+    "@fontsource/heebo": "^5.0.0",
+    "@react-three/drei": "^9.117.0",
+    "@react-three/fiber": "^8.17.10",
+    "@remotion/bundler": "^4.0.0",
+    "@remotion/cli": "^4.0.0",
+    "@remotion/light-leaks": "^4.0.443",
+    "@remotion/renderer": "^4.0.0",
+    "@remotion/three": "^4.0.443",
+    "@remotion/transitions": "^4.0.443",
+    "@types/three": "^0.171.0",
+    "lucide-react": "^1.7.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "remotion": "^4.0.0",
+    "three": "^0.171.0",
+    "@remotion/compositor-linux-x64-gnu": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "typescript": "^5.5.0"
+  }
+}

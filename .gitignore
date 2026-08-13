@@ -1,0 +1,10 @@
+node_modules/
+work/
+output/
+remotion/public/videos/*
+!remotion/public/videos/.gitkeep
+remotion/.bundle-cache.json
+remotion/.remotion/
+.DS_Store
+__pycache__/
+*.pyc
