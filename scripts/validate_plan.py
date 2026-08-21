@@ -178,8 +178,22 @@ def main() -> int:
         if 0 <= gap < 6:
             warns.append(f"רק {round(gap, 1)}s בין שני B-rolls — מומלץ ≥6s")
 
-    if duration >= 20 and not ov and not br:
-        warns.append("אין אף סצנה — הסרטון יהיה דיבור בלבד")
+    # רצפת צפיפות — התלונה מספר 1 של משתמש היא "לא היה שום דבר על המסך"
+    if duration >= 20:
+        if not ov and not br:
+            errors.append("אין אף סצנה — הסרטון יהיה דיבור בלבד. הוסף לפחות "
+                          "2 אוברליים ו-1 B-roll (ראה docs/SCENES.md)")
+        else:
+            want_ov = 4 if duration >= 40 else 2
+            want_br = 2 if duration >= 40 else 1
+            if len(ov) < want_ov:
+                warns.append(f"רק {len(ov)} אוברליים ל-{duration:.0f}ש' — היעד {want_ov}. "
+                             "הסרטון ירגיש ריק")
+            if len(br) < want_br:
+                warns.append(f"רק {len(br)} B-rolls ל-{duration:.0f}ש' — היעד {want_br}")
+    zooms = plan.get("speaker_zooms") or []
+    if duration >= 20 and not zooms:
+        warns.append("אין speaker_zooms — הסרטון ייראה סטטי. אחד כל ~7 שניות")
     hook = props.get("hook")
     if not hook or not (hook.get("text") or "").strip():
         warns.append("אין הוק כתוב — מפסידים את 3 השניות החשובות ביותר")

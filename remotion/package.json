@@ -23,8 +23,7 @@
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "remotion": "^4.0.0",
-    "three": "^0.171.0",
-    "@remotion/compositor-linux-x64-gnu": "^4.0.0"
+    "three": "^0.171.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",

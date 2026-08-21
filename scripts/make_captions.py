@@ -30,16 +30,31 @@ FONT_DIRS = [
 
 
 def find_font():
-    """Gveret Levin אם קיים, אחרת Heebo ExtraBold, אחרת ברירת מחדל."""
-    pats = ["*[Gg]veret*.ttf", "*[Gg]veret*.otf", "Heebo-ExtraBold.ttf", "Heebo-Black.ttf", "Heebo-Bold.ttf"]
+    """הפונט המצורף לסקיל קודם לכל — כך הפלט זהה אצל כל משתמש.
+    (חיפוש חופשי במערכת נתן לכל מחשב פונט אחר: אצל אחד Gveret, אצל
+    אחר Heebo — אותו סרטון נראה אחרת אצל כל אחד.)
+    אפשר לעקוף עם משתנה סביבה: REEL_FONT=/path/to/font.ttf"""
+    override = os.environ.get("REEL_FONT")
+    if override and os.path.isfile(override):
+        return override
+
+    bundled = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets", "fonts"))
+    pats = ["*[Gg]veret*.ttf", "*[Gg]veret*.otf", "Heebo-ExtraBold.ttf",
+            "Heebo-Black.ttf", "Heebo-Bold.ttf"]
+    # 1. הפונטים המצורפים לסקיל
+    for pat in pats:
+        hits = glob.glob(os.path.join(bundled, pat))
+        if hits:
+            return sorted(hits)[0]
+    # 2. רק אם אין מצורף — פונט מערכת
     for pat in pats:
         for d in FONT_DIRS:
             d = os.path.abspath(d)
-            if not os.path.isdir(d):
+            if not os.path.isdir(d) or d == bundled:
                 continue
             hits = glob.glob(os.path.join(d, pat)) or glob.glob(os.path.join(d, "**", pat), recursive=True)
             if hits:
-                return hits[0]
+                return sorted(hits)[0]
     return None
 
 
@@ -84,13 +99,18 @@ def render_card(text, emph, font, path):
                 runs = [(vis[:i], WHITE), (vis_e, ORANGE), (vis[i + len(vis_e):], WHITE)]
                 runs = [r for r in runs if r[0]]
 
-        widths = [d.textlength(p, font=font) for p, _ in runs]
+        # מודדים לפי מיקום מצטבר בשורה השלמה — כך רווח בקצה רץ לא נבלע
+        # (מדידת כל רץ בנפרד איבדה את הרווח והמילים נדבקו: "האנשים20%בהתחלה")
+        full_w = d.textlength(vis, font=font)
+        x0 = (W - full_w) / 2
+        pos, acc = [], ""
+        for part, _col in runs:
+            pos.append(x0 + d.textlength(acc, font=font))
+            acc += part
         # הרצים כבר בסדר ויזואלי — מציירים משמאל לימין
-        x = (W - sum(widths)) / 2
-        for (part, col), pw in zip(runs, widths):
-            d.text((x, y), part, font=font, fill=col,
+        for (part, col), px in zip(runs, pos):
+            d.text((px, y), part, font=font, fill=col,
                    stroke_width=STROKE_W, stroke_fill=STROKE)
-            x += pw
         y += lh + LINE_GAP
 
     img.save(path)
@@ -122,7 +142,15 @@ def main():
     if not fp:
         print("⚠️  לא נמצא פונט עברי. שים Heebo-ExtraBold.ttf ב-assets/fonts", file=sys.stderr)
         sys.exit(2)
-    font = ImageFont.truetype(fp, FONT_SIZE)
+    # ⚠️ layout_engine=BASIC הוא קריטי ולא אופציונלי:
+    # get_display() כבר מחזיר טקסט בסדר ויזואלי. אם Pillow הותקן עם RAQM
+    # (נפוץ בלינוקס ובחלק מהמקים) הוא יפעיל BiDi בעצמו על טקסט שכבר הפוך —
+    # היפוך כפול = ג'יבריש, והאותיות הסופיות (ם/ך/ף) קופצות לצד הלא נכון.
+    # BASIC מבטיח שהפלט זהה בכל מחשב, עם RAQM או בלי.
+    try:
+        font = ImageFont.truetype(fp, FONT_SIZE, layout_engine=ImageFont.Layout.BASIC)
+    except Exception:
+        font = ImageFont.truetype(fp, FONT_SIZE)
 
     cuts = plan.get("cuts") or []
     segs, total = (build_map(cuts) if cuts else ([(0.0, 1e6, 0.0)], 1e6))
