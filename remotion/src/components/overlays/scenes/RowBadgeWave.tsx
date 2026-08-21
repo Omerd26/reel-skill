@@ -57,14 +57,24 @@ export const RowBadgeWave: React.FC<Props> = ({ scene }) => {
           {scene.headline && (
             <div
               style={{
+                // The headline used to float bare above the rows and landed
+                // on the speaker's beard/mic — orange on dark brown, and it
+                // covered his mouth. It now rides its own dark plate, which
+                // reads on any footage and keeps the face clear.
+                alignSelf: "center",
                 textAlign: "center",
                 fontFamily: "'Heebo', sans-serif",
                 fontWeight: 900,
                 fontSize: 34,
                 color: "#FFFFFF",
                 direction: "rtl",
+                padding: "10px 26px",
+                borderRadius: 18,
+                background: "linear-gradient(180deg, #1C1D24 0%, #15161C 100%)",
+                border: "1px solid rgba(255,255,255,0.14)",
+                boxShadow: "0 14px 34px rgba(0,0,0,0.5)",
                 textShadow: "0 2px 10px rgba(0,0,0,0.9)",
-                marginBottom: 4,
+                marginBottom: 10,
               }}
             >
               <span style={{ color: accent, textShadow: `0 0 20px ${toneGlow(scene.tone ?? "brand")}` }}>

@@ -113,13 +113,16 @@ export const MetricComparison: React.FC<Props> = ({ scene }) => {
               {scene.eyebrow && (
                 <div
                   style={{
-                    fontFamily: FONTS.mono,
-                    fontSize: 14,
-                    fontWeight: 700,
-                    letterSpacing: "0.16em",
-                    textTransform: "uppercase",
-                    color: isWarm ? WARM.textTertiary : COLORS.textTertiary,
-                    marginBottom: 6,
+                    // Was 14px tertiary-grey — measured invisible over a
+                    // bright ceiling. Headers carry their own contrast.
+                    fontFamily: "'Heebo', sans-serif",
+                    fontSize: 30,
+                    fontWeight: 900,
+                    letterSpacing: "0",
+                    color: "#FFFFFF",
+                    direction: "rtl",
+                    textShadow: "0 2px 10px rgba(0,0,0,0.92), 0 0 26px rgba(0,0,0,0.7)",
+                    marginBottom: 12,
                   }}
                 >
                   {scene.eyebrow}
@@ -142,8 +145,10 @@ export const MetricComparison: React.FC<Props> = ({ scene }) => {
               position: "relative",
             }}
           >
-            <RingCard side={scene.left} material={material} />
+            {/* RTL: `left` is the first subject the speaker names, so it
+                renders on the RIGHT. Reversed order read backwards in Hebrew. */}
             <RingCard side={scene.right} material={material} />
+            <RingCard side={scene.left} material={material} />
 
             {scene.corner_badge && (
               <CornerBadge

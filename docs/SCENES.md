@@ -62,9 +62,9 @@
 
 | type | שדות | מתי |
 |---|---|---|
-| `screen_journey` | `title`, `items`: `[{text: כותרת מסך, sub_text: הפעולה, value: אישור}]` 2-5 | **מסע ארוך (8-16ש')** — "לך להגדרות ותעשה X" |
-| `blueprint_map` | `title`, `items`: `[{text, sub_text: "bad"/"good"?}]` 3-5 | **מסע ארוך** — "ככה האלגוריתם/התהליך עובד" |
-| `twin_phones_funnel` | `title`, `items`: בדיוק 2 `[{text, value: אחוז}]` | מנגנון X% מול Y% |
+| `screen_journey` | `title`, `items`: `[{text: כותרת מסך, sub_text: הפעולה, value: אישור}]` 2-5 | **מסע — מינימום 8ש', מומלץ 10-16** |
+| `blueprint_map` | `title`, `items`: `[{text, sub_text: "bad"/"good"?}]` 3-5 | **מסע — מינימום 8ש', מומלץ 12** |
+| `twin_phones_funnel` | `title`, `items`: בדיוק 2 `[{text, value: אחוז}]` | מנגנון X% מול Y% — מינימום 6ש' |
 | `graph_spike` | `title`, `bars`: `[{value, label, highlight}]`, `primary`, `secondary` | צמיחה דרמטית |
 | `stat_counter` | `title` (ההקשר! למשל "מ-1,000 ל-10,000"), `primary` (המספר המלא), `suffix`?, `label` | מספר-שיא מלא-מסך |
 | `shockwave_counter` | כמו stat_counter + גלי הדף | הרגע הכי דרמטי |
@@ -72,6 +72,24 @@
 | `workflow_pipeline` | `title`, `items`: שלבי תהליך | תהליך עבודה (עולם בהיר) |
 | `key_point` | `primary` (משפט אחד גדול) | הצהרה שדורשת מסך |
 | `checklist_outcome` | `items` + תוצאה | רשימת עשייה שמסתכמת |
+
+> ⚠️ **סצנות מסע חייבות חלון ארוך.** המצלמה עוברת בין השלבים אחד-אחד;
+> בחלון קצר היא לא מספיקה והמסך נשאר ריק. נמדד: `blueprint_map` עם 3 שלבים
+> ב-6 שניות הראה **צומת אחד** ו-75% מסך ריק. תן לה 12 שניות, או בחר סוג קצר.
+> `validate_plan.py` חוסם את זה.
+
+## כמה זמן נותנים לכל סצנה
+
+| סוג | מינימום | טיפוסי |
+|---|---|---|
+| אוברליי טקסט (`highlight_sweep`, `glass_info_card`) | 2.5ש' | 3-4ש' |
+| אוברליי מספר (`counter_rollup`, `metric_lockup`, `metric_comparison`) | **3ש'** | 3.5-4.5ש' |
+| רשימה/גריד (`card_grid_reveal`, `row_badge_wave`, `medal_rank`) | 3.5ש' | עד סוף המנייה בדיבור |
+| B-roll קצר (`key_point`, `stat_counter`, `graph_spike`) | 3ש' | 3-5ש' |
+| **סצנות מסע** (`screen_journey`, `blueprint_map`) | **8ש'** | 10-16ש' |
+
+**למה למספרים צריך 3 שניות:** הספירה עולה במשך ~1.5ש'. בחלון של 2ש' הצופה
+רואה רק את הריצה, אף פעם לא את המספר. תן לו לנחות ולשבת.
 
 ## סדר עדיפות כשמתלבטים
 

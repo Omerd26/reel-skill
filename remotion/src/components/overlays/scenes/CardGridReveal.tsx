@@ -119,7 +119,7 @@ export const CardGridReveal: React.FC<Props> = ({ scene }) => {
                 card={card}
                 index={i}
                 total={cards.length}
-                material={isBlurred ? "solid-dark" : (scene.material ?? "liquid")}
+                material={isBlurred ? "solid-dark" : (scene.material ?? "solid-dark")}
                 rtl={rtl}
               />
             ))}

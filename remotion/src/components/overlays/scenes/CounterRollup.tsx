@@ -22,6 +22,8 @@ export interface CounterRollupScene {
   from_value?: number;
   /** Label under the counter — e.g. "צפיות". */
   label?: string;
+  /** Long payoff roll (spans ~85% of the scene). Default: land fast and hold. */
+  run_past?: boolean;
   /** Prefix/suffix — e.g. "₪", "%". */
   prefix?: string;
   suffix?: string;
@@ -43,9 +45,11 @@ const DIGIT_H = 96;
 /** One rolling digit column — a vertical strip of 0-9 that translates. */
 const DigitReel: React.FC<{ digit: number; progress: number; accent: string }> = ({ digit, progress, accent }) => {
   // The reel spins several full turns early, then settles on the target.
-  const spins = 2;
+  const spins = 1;
   const pos = progress < 1 ? (spins * 10 + digit) * progress : digit;
-  const offset = (pos % 10) * DIGIT_H + Math.floor(pos / 10) * 0; // visual wheel position
+  // At rest the strip must sit EXACTLY on one digit — any fraction leaves two
+  // half-rows visible and the number reads as garbage.
+  const offset = progress >= 1 ? digit * DIGIT_H : (pos % 10) * DIGIT_H;
   const blur = progress < 0.75 ? (1 - progress) * 5 : 0;
   return (
     <div
@@ -100,8 +104,14 @@ export const CounterRollup: React.FC<Props> = ({ scene }) => {
   const anchor = resolveAnchor(scene.anchor ?? "above-captions");
 
   const sceneFrames = Math.max(1, Math.round((scene.end - scene.start) * fps)) || durationInFrames;
-  // PAYOFF law: the roll spans ~85% of the scene.
-  const t = interpolate(frame, [Math.round(0.2 * fps), Math.round(0.85 * sceneFrames)], [0, 1], {
+  // The number must LAND and then be READ. Measured: rolling to 85% of the
+  // scene left the value unreadable two-thirds of the way in — the viewer
+  // only ever saw the blur. Land by ~55% (and never later than 2.0s), then
+  // hold clean. `run_past` opts back into the long payoff roll.
+  const rollEnd = scene.run_past
+    ? Math.round(0.85 * sceneFrames)
+    : Math.min(Math.round(0.55 * sceneFrames), Math.round(2.0 * fps));
+  const t = interpolate(frame, [Math.round(0.15 * fps), Math.max(rollEnd, Math.round(0.5 * fps))], [0, 1], {
     extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: easeFn("glide"),
   });
   const from = scene.from_value ?? 0;

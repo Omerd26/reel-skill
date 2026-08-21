@@ -119,6 +119,17 @@ def check_scene(sc: dict, kind: str, schemas: dict, duration: float, spoken: str
         errors.append(f"{kind} '{sid}': נגמר ב-{e}s אחרי סוף הסרטון ({duration}s)")
     if e - s < 1.5:
         warns.append(f"{kind} '{sid}': קצר מדי ({round(e - s, 1)}s) — מתחת ל-1.5s לא נקלט")
+    # סצנות מסע מטיילות בין שלבים — בחלון קצר המצלמה לא מספיקה והמסך
+    # נשאר ריק. נמדד: blueprint_map ב-6s הראה צומת אחד מתוך שלושה.
+    MIN_DUR = {"screen_journey": 8.0, "blueprint_map": 8.0,
+               "twin_phones_funnel": 6.0, "analytics_dashboard": 4.0}
+    need = MIN_DUR.get(st)
+    if need and (e - s) < need:
+        n_items = len(sc.get("items") or [])
+        errors.append(
+            f"{kind} '{sid}' ({st}): {round(e - s, 1)}s זה קצר מדי לסצנת מסע"
+            f"{f' עם {n_items} שלבים' if n_items else ''} — צריך לפחות {need:.0f}s "
+            "אחרת המצלמה לא מספיקה לעבור והמסך נשאר ריק")
     for p, text in walk_strings(sc):
         if EMOJI.search(text):
             errors.append(f"{kind} '{sid}': אימוג'י בשדה{p} — אסור")
