@@ -521,9 +521,9 @@ const scaledAnchor = (styles: CSSProperties, origin: string): CSSProperties => (
 export function resolveAnchor(anchor: OverlayAnchor | undefined): CSSProperties {
   switch (anchor) {
     // ── Preferred top zone ────────────────────────────────────────────────
-    case "top-left":             return scaledAnchor({ top: 100, left: 56, maxWidth: CONTENT_W }, "top left");
-    case "top-right":            return scaledAnchor({ top: 100, right: 56, maxWidth: CONTENT_W }, "top right");
-    case "top-center":           return scaledAnchor(centredBox({ top: 100, transform: "translateX(-50%)" }), "top center");
+    case "top-left":             return scaledAnchor({ top: 200, left: 56, maxWidth: CONTENT_W }, "top left");
+    case "top-right":            return scaledAnchor({ top: 200, right: 56, maxWidth: CONTENT_W }, "top right");
+    case "top-center":           return scaledAnchor(centredBox({ top: 200, transform: "translateX(-50%)" }), "top center");
     // ── Side rails — between top and face zone, hugging the edge ──────────
     case "left-rail":            return scaledAnchor({ top: 220, left: 40, maxWidth: CONTENT_W }, "top left");
     case "right-rail":           return scaledAnchor({ top: 220, right: 40, maxWidth: CONTENT_W }, "top right");
@@ -539,6 +539,6 @@ export function resolveAnchor(anchor: OverlayAnchor | undefined): CSSProperties 
     // ── Default: centred top zone. Was top-right, the anchor with ZERO left
     //    margin and therefore the tightest text budget — a bad default for a
     //    scene that forgot to declare one.
-    default:                     return scaledAnchor(centredBox({ top: 100, transform: "translateX(-50%)" }), "top center");
+    default:                     return scaledAnchor(centredBox({ top: 200, transform: "translateX(-50%)" }), "top center");
   }
 }
