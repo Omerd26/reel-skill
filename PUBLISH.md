@@ -12,7 +12,7 @@
 
 ```bash
 cd "~/Downloads/omer digital/dredit-skill"
-git remote add origin https://github.com/omerdraizin/reel-skill.git
+git remote add origin https://github.com/Omerd26/reel-skill.git
 git branch -M main
 git push -u origin main
 ```
@@ -47,7 +47,7 @@ git add -A && git commit -m "שיפור" && git push
 > גרפיקות, מוזיקה. רץ אצלך במחשב, בלי הרשמה ובלי תשלום.
 >
 > הקישור + הוראות:
-> github.com/omerdraizin/reel-skill
+> github.com/Omerd26/reel-skill
 >
 > צריך Claude Code (מנוי Claude). ההתקנה היא 2 פקודות והסקריפט עושה את השאר.
 >
@@ -55,7 +55,7 @@ git add -A && git commit -m "שיפור" && git push
 
 **גרסה קצרה יותר (אם ManyChat מגביל אורך):**
 
-> הנה העורך 🎬 github.com/omerdraizin/reel-skill
+> הנה העורך 🎬 github.com/Omerd26/reel-skill
 > קליפ שלך → ריל ערוך עם כתוביות וגרפיקות. חינם, רץ על המחשב שלך.
 > צריך Claude Code. תקוע? כתוב לי.
 

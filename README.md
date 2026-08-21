@@ -12,7 +12,7 @@
 ## התקנה — שתי פקודות
 
 ```bash
-git clone https://github.com/omerdraizin/reel-skill.git && cd reel-skill
+git clone https://github.com/Omerd26/reel-skill.git && cd reel-skill
 ./install.sh
 ```
 
