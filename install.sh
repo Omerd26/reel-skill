@@ -69,6 +69,14 @@ else
   warn "בלי Node — תקבל כתוביות וחיתוכים, בלי גרפיקות"
 fi
 
+# שתי עותקי SKILL.md (תוסף + שכפול) חייבים להיות זהים
+if [ -f skills/reel/SKILL.md ] && [ -f .claude/skills/reel/SKILL.md ]; then
+  cmp -s skills/reel/SKILL.md .claude/skills/reel/SKILL.md || {
+    cp skills/reel/SKILL.md .claude/skills/reel/SKILL.md
+    warn "סונכרן SKILL.md בין שתי הצורות"
+  }
+fi
+
 mkdir -p work output caps
 echo
 if [ "$MISSING" = "0" ]; then

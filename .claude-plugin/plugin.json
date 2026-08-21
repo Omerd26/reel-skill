@@ -1,0 +1,16 @@
+{
+  "name": "reel",
+  "description": "עורך רילים בעברית — הופך קליפ מדבר-למצלמה לריל ערוך: כתוביות עברית, הוק, גרפיקות, מוזיקה. רץ מקומית.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Omer Draizin",
+    "url": "https://instagram.com/omerd"
+  },
+  "homepage": "https://github.com/Omerd26/reel-skill",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Omerd26/reel-skill.git"
+  },
+  "license": "MIT",
+  "keywords": ["hebrew", "video", "reels", "instagram", "captions"]
+}

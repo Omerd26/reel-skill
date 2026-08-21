@@ -1,0 +1,14 @@
+{
+  "name": "omerd-reel",
+  "owner": {
+    "name": "Omer Draizin",
+    "url": "https://instagram.com/omerd"
+  },
+  "plugins": [
+    {
+      "name": "reel",
+      "description": "עורך רילים בעברית — קליפ מדבר-למצלמה → ריל ערוך עם כתוביות, גרפיקות ומוזיקה. הכול רץ על המחשב שלך.",
+      "source": "."
+    }
+  ]
+}
