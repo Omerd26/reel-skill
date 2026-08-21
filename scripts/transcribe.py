@@ -12,9 +12,48 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
+
+_NUM_FRAG = re.compile(r"^[-–—]?[\d][\d,.\u066b\u066c]*$|^[,.][\d]+$")
+
+
+def merge_number_tokens(words: list) -> list:
+    """Whisper splits "1,000" into ["-1", ",000"] — separate RTL spans lay out
+    right-to-left and the number reads BACKWARDS ("000,1"). Collapse runs of
+    numeric fragments into one token, and glue a lone "%" to the number before
+    it. Proven in production; conservative — nothing else is touched."""
+    if not words:
+        return words
+    out, i, n = [], 0, len(words)
+    while i < n:
+        wt = (words[i].get("word") or "").strip()
+        if wt == "%" and out and any(c.isdigit() for c in out[-1]["word"]) and not out[-1]["word"].endswith("%"):
+            out[-1] = {**out[-1], "word": out[-1]["word"] + "%", "end": words[i]["end"]}
+            i += 1
+        elif _NUM_FRAG.match(wt):
+            j, frags = i, []
+            while j < n and _NUM_FRAG.match((words[j].get("word") or "").strip()):
+                frags.append(words[j])
+                j += 1
+            if len(frags) > 1:
+                joined = "".join((f["word"] or "").strip() for f in frags).lstrip("-–—")
+                out.append({
+                    "word": joined,
+                    "start": frags[0]["start"],
+                    "end": frags[-1]["end"],
+                    "probability": min(f.get("probability", 1.0) for f in frags),
+                })
+            else:
+                out.append(frags[0])
+            i = j
+        else:
+            out.append(words[i])
+            i += 1
+    return out
+
 
 MODEL = "ivrit-ai/whisper-large-v3-turbo-ct2"
 
@@ -76,6 +115,7 @@ def main() -> int:
                         "end": round(w.end, 3),
                         "probability": round(w.probability, 3),
                     })
+        words = merge_number_tokens(words)
         result = {
             "text": " ".join(w["word"] for w in words),
             "duration": round(probe_duration(args.video), 3),

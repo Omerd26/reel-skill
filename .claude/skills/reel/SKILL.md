@@ -17,8 +17,26 @@ description: עורך רילים בעברית — הופך צילום מדבר-�
 ```bash
 ffmpeg -version >/dev/null 2>&1 && echo FFMPEG_OK
 python3 -c "import PIL, bidi" 2>/dev/null && echo PY_OK
+python3 -c "import faster_whisper" 2>/dev/null && echo WHISPER_OK
 node --version 2>/dev/null
 ```
+
+**חסר ffmpeg?** רוב המשתמשים לא מתקינים brew. התקן ישירות (macOS Apple Silicon):
+```bash
+mkdir -p ~/.local/bin && cd /tmp
+curl -sL -o ff.zip https://www.osxexperts.net/ffmpeg711arm.zip && unzip -oq ff.zip -d ffx
+mv ffx/ffmpeg ~/.local/bin/ && chmod +x ~/.local/bin/ffmpeg
+xattr -d com.apple.quarantine ~/.local/bin/ffmpeg 2>/dev/null
+curl -sL -o fp.zip https://www.osxexperts.net/ffprobe711arm.zip && unzip -oq fp.zip -d fpx
+mv fpx/ffprobe ~/.local/bin/ && chmod +x ~/.local/bin/ffprobe
+xattr -d com.apple.quarantine ~/.local/bin/ffprobe 2>/dev/null
+grep -q '.local/bin' ~/.zshrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+export PATH="$HOME/.local/bin:$PATH"
+```
+(Intel Mac: אותו דבר עם `ffmpeg711intel.zip`. Windows: `winget install ffmpeg`.
+יש brew? `brew install ffmpeg` פשוט יותר.)
+חסרות ספריות פייתון? `pip3 install pillow python-bidi faster-whisper`
+(אם PEP 668 חוסם — הוסף `--break-system-packages`.)
 
 | מסלול | דרישות | מה מקבלים | זמן התקנה |
 |---|---|---|---|
@@ -37,12 +55,27 @@ node --version 2>/dev/null
 בקצרה:
 
 ```bash
-bash scripts/probe.sh "<video>"          # אורך, ממדים, מפת שתיקות, audio.wav
-python3 scripts/transcribe.py <video> --topic "<נושא>" --out work/transcript.json
-# (אין faster-whisper? בקש מהמשתמש להדביק תמלול וסנכרן לפי מפת השתיקות)
+mkdir -p work output caps
+bash scripts/probe.sh work/input.mp4 work/     # ממדים + מפת שתיקות + audio.wav
+python3 scripts/transcribe.py work/input.mp4 --topic "<נושא>" --out work/transcript.json
+python3 scripts/split_captions.py work/transcript.json --out work/plan.json
+#   ↑ פיצול מכני לפי החוקים. **עכשיו עבור על work/plan.json בעצמך** (ראה למטה)
 python3 scripts/make_captions.py work/plan.json caps/
-python3 scripts/render.py "<video>" work/plan.json caps/ output/reel.mp4
+python3 scripts/render.py work/input.mp4 work/plan.json caps/ output/reel.mp4
 ```
+
+**זמנים אמיתיים (נמדד על קליפ 52ש'):** תמלול ~90ש' · פיצול מיידי · כרטיסים ~3ש' ·
+**רנדר ~21ש'**. סה"כ כ-2.5 דקות. (בפעם הראשונה +הורדת מודל 1.2GB.)
+
+### מה אתה עושה על plan.json — זה החלק שלך
+`split_captions.py` נותן פיצול מכני. **תעבור על הכרטיסים ותתקן:**
+1. **סמיכות שנשברה** — "תמונת" / "פרופיל" בשני כרטיסים = לאחד. (`references/captions-hebrew.md`)
+2. **מילת ההדגשה** — `emph` נבחר לפי אורך. שנה למילה שנושאת את המשמעות. מילה אחת לכרטיס.
+3. **כרטיס שנשמע חתוך** — אחד/פצל לפי איך שהמשפט נשמע, לא לפי הספירה.
+4. **תמלול שגוי** — מילה שלא קיימת בעברית (למשל "תסיעות"→"צפיות") — תקן ב-`work/transcript.json`
+   והרץ את `split_captions.py` מחדש. **המספרים כבר מאוחדים אוטומטית** ("1,000", "80%").
+5. **`cuts`** — ברירת מחדל: חיתוך ראש/זנב בלבד. רוצה לחתוך שתיקות באמצע —
+   הוסף עוד קטעים לפי מפת השתיקות מ-probe.sh (כל קטע: `{"start":..,"end":..}`).
 
 **מפת השתיקות היא עמוד השדרה.** אל תנחש טיימקודים — תמדוד.
 חוקי הכתוביות בעברית: `references/captions-hebrew.md` (זה החלק שכולם שוברים).
