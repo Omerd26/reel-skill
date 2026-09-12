@@ -38,10 +38,24 @@ const easeInOutCubic = (p: number): number =>
  *
  * Linear scan over zooms is fine — typical N is 3, capped at 6.
  */
+// The skill's docs (SKILL.md / PLAYBOOK.md) describe a zoom as {anchor, start, end, peak}
+// while this curve expects {start, ease_in, hold, ease_out, peak}. Fed the documented shape,
+// ease_in/hold/ease_out were undefined → NaN scale → `transform: scale(NaN)` → Chromium stopped
+// repainting the video layer for the whole window (the "video freezes at 5-7s" bug, 12.9.2026).
+// Accept both: derive the three phases from start/end (rise 40% · hold 20% · fall 40%).
+function normalizeZoom(z: SpeakerZoom & { end?: number; anchor?: number }): SpeakerZoom {
+  const hasPhases = Number.isFinite(z.ease_in) && Number.isFinite(z.hold) && Number.isFinite(z.ease_out);
+  if (hasPhases) return z;
+  const end = Number.isFinite(z.end) ? (z.end as number) : z.start + 3;
+  const span = Math.max(0.3, end - z.start);
+  return { start: z.start, ease_in: span * 0.4, hold: span * 0.2, ease_out: span * 0.4, peak: z.peak ?? 1.05 };
+}
+
 export function speakerZoomScale(t: number, zooms: SpeakerZoom[] | undefined): number {
   if (!zooms || zooms.length === 0) return 1;
 
-  for (const z of zooms) {
+  for (const raw of zooms) {
+    const z = normalizeZoom(raw as SpeakerZoom & { end?: number; anchor?: number });
     const easeInEnd = z.start + z.ease_in;
     const holdEnd = easeInEnd + z.hold;
     const easeOutEnd = holdEnd + z.ease_out;
