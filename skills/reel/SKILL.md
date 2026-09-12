@@ -118,7 +118,12 @@ cd "$ROOT/remotion" && [ -d node_modules ] || npm install   # ~2 דקות, פע�
 דרוש ~3GB פנויים. אמור למשתמש "מכין סביבה, כמה דקות" — בלי להציף בפלט.
 
 ## שלב 1 — הקליפ
-העתק את הווידאו של המשתמש ל-`work/input.mp4`.
+העתק את הווידאו של המשתמש ל-`work/input.mp4`, **ואז נרמל אותו** — צילומי אייפון הם HEVC עם קצב
+פריימים משתנה, ומנוע הרנדר מכפיל בהם פריימים (הסרטון "נתקע" לשנייה-שתיים, נמדד 12.9.2026):
+```bash
+ffmpeg -y -v error -i work/input.mp4 -c:v libx264 -preset medium -crf 18 -r 30 -vsync cfr \
+  -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart work/input_h264.mp4 && mv work/input_h264.mp4 work/input.mp4
+```
 שאל שאלה אחת בלבד: **"על מה הסרטון? (משפט)"** — משפר תמלול ותכנון.
 
 ## שלב 2 — תמלול
