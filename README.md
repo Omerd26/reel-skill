@@ -20,7 +20,7 @@
 ואז:
 
 ```
-/plugin install reel
+/plugin install reel@omerd-reel
 ```
 
 זהו. הסקיל מותקן ועובד בכל פרויקט.
