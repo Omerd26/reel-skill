@@ -201,10 +201,15 @@ class AudioPeaks(unittest.TestCase):
              "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", str(hot)])
         self.assertGreater(true_peak_db(hot), -1.0)
         frames = probe(hot)["frames"]
+        import shutil
+        original = d / "hot_original.mp4"
+        shutil.copy(hot, original)
         res = finish_audio(hot)
         self.assertTrue(res["limited"])
         self.assertLessEqual(true_peak_db(hot), -0.9)
         self.assertEqual(probe(hot)["frames"], frames)
+        from reelkit.qa import audio_offset_ms
+        self.assertLessEqual(abs(audio_offset_ms(hot, original) or 0), 1.0, "the limiter shifted the audio")
         quiet = tone_clip(d / "quiet.mp4", [("tone", 1.5)], bframes=False, gop=30)
         before = quiet.read_bytes()
         self.assertFalse(finish_audio(quiet)["limited"])

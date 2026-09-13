@@ -209,8 +209,11 @@ def finish_audio(path: str | Path, reference: str | Path | None = None, fps: int
     if delay:
         chain.append(f"atrim=start={delay:.4f},asetpts=PTS-STARTPTS,apad")
     if limit:
-        # sample ceiling -1.6 dBFS leaves room for inter-sample (true) peaks; level=false = no auto gain
-        chain.append("alimiter=limit=0.83:attack=5:release=60:level=false")
+        # sample ceiling -1.6 dBFS leaves room for inter-sample (true) peaks; level=false = no auto gain.
+        # The limiter looks ahead `attack` ms and delays the signal by that much (measured: +5ms
+        # lip-sync drift); trim it back here instead of `latency=1`, which older ffmpeg lacks.
+        chain.append("alimiter=limit=0.83:attack=5:release=60:level=false,"
+                     "atrim=start=0.005,asetpts=PTS-STARTPTS,apad")
     path = Path(path)
     tmp = path.with_name(path.stem + ".audiofix" + path.suffix)
     run([tool("ffmpeg"), "-y", "-v", "error", "-i", str(path),
