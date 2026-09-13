@@ -1,8 +1,11 @@
 # קטלוג הסצנות
 
 כל סצנה = אובייקט בתוך `editing_plan.overlay_scenes` או `editing_plan.broll_scenes`.
-שדות חובה לכל סצנה: `id` (מחרוזת ייחודית), `type`, `start`, `end` (שניות).
-`validate_plan.py` אוכף את הסכמות האלה — אל תמציא שדות או סוגים.
+שדות חובה לכל סצנה: `id` (מחרוזת ייחודית), `type`, `start`, `end` (שניות, בציר הערוך).
+שדות כלליים אופציונליים: `requirement_ids` (הדרישות שהסצנה מקיימת), `role: "opening"` (פתיחה
+מונפשת, מותרת מ-0 עד `rules.opening_max_seconds`), `transcript_phrase`, `rationale`,
+`unspoken_numbers_ok` (רק למספר שהמשתמש נתן בהודעה, עם rationale).
+`reel validate` אוכף את הסכמות האלה — אל תמציא שדות או סוגים. אין סוג שמתאים? `custom_layers`.
 
 ## אוברליים (על הדובר, `overlay_scenes`)
 
@@ -78,6 +81,41 @@
 > ב-6 שניות הראה **צומת אחד** ו-75% מסך ריק. תן לה 12 שניות, או בחר סוג קצר.
 > `validate_plan.py` חוסם את זה.
 
+## סצנה מותאמת — `custom_layers` (אוברליי או B-roll)
+
+לכל מה שאין בקטלוג — "תציג את 3 כאן לידי", לוגו שהמשתמש שלח, אנימציית פתיחה — בלי לשנות את
+רכיבי הליבה. הסצנה היא רשימת שכבות על קנבס 1080×1920 (קרא מיקומים מרשת הקואורדינטות בדפי
+הפריימים של `reel understand`). ב-`overlay_scenes` הדובר נשאר גלוי; `background` (צבע) או הצבה
+ב-`broll_scenes` הופכים אותה למסך מלא (ואז הכתוביות מושתקות בזמנה).
+
+| שדה בשכבה | ערכים |
+|---|---|
+| `kind` | `text` / `image` / `video` / `shape` |
+| `x`, `y`, `w`, `h` | פיקסלים. `origin: "center"` → x,y הם מרכז הקופסה (ברירת מחדל: פינה שמאלית-עליונה) |
+| `enter` | `none` `fade` `pop` `slide-up` `slide-down` `slide-left` `slide-right` `wipe` `draw` `type` |
+| `enter_at` / `enter_duration` / `exit_at` | שניות מתחילת הסצנה (ברירת מחדל: 0 / 0.45 / סוף הסצנה) |
+| `exit` | `fade` (ברירת מחדל) / `none` |
+| `loop` | `none` `pulse` `float` `spin` |
+| טקסט | `text`, `size`, `weight`, `color`, `stroke`, `stroke_color`, `align`, `plate` (צבע רקע), `plate_radius`, `padding` |
+| תמונה / וידאו | `src` (נתיב מלא, או יחסי ל-props.json), `fit` (`contain`/`cover`), `radius`, `start_from` |
+| צורה | `shape`: `rect` `circle` `underline` `line` `arrow`; `color`, `stroke_width`, `fill`; לקו/חץ: `x2`, `y2` |
+
+```json
+{"id": "remember3", "type": "custom_layers", "start": 5.95, "end": 8.45, "requirement_ids": ["R1"],
+ "layers": [
+  {"kind": "text", "text": "3", "x": 600, "y": 430, "w": 320, "h": 320, "size": 260,
+   "plate": "#E0701E", "plate_radius": 40, "enter": "pop", "enter_at": 1.25, "loop": "pulse"},
+  {"kind": "shape", "shape": "arrow", "x": 560, "y": 900, "x2": 700, "y2": 760, "color": "#FFFFFF", "enter": "draw"}
+ ]}
+```
+הכללים: בלי אימוג'י, רק מספרים שנאמרו, לא על הפנים, לא מתחת ל-y≈1450. קבצים (`src`) מאומתים
+לפני הרנדר ומועתקים למנוע לפי תוכן — קובץ שהוחלף באותו שם תמיד מופיע בגרסה החדשה.
+
+## תמונה או סרטון של המשתמש
+
+`user_image` (`image_url`) / `user_video` (`video_url`) ב-`broll_scenes`: `display` (`fullscreen`/`card`),
+`effect` (`fade`/`pop`/`slide`/`cut`), `card_size`, `screen_position`, `caption`. הנתיב — מלא או יחסי ל-props.json.
+
 ## כמה זמן נותנים לכל סצנה
 
 | סוג | מינימום | טיפוסי |
@@ -99,4 +137,5 @@
 4. הסבר תהליך/אלגוריתם → `blueprint_map`
 5. הדרכת מסכים → `screen_journey`
 6. פאנץ' מילולי → `highlight_sweep` או `word_stack`
-7. סתם "משהו יפה" → אל. עדיף כלום מסצנה שלא תומכת.
+7. בקשה ספציפית שאין לה סוג → `custom_layers`
+8. סתם "משהו יפה" → אל. עדיף כלום מסצנה שלא תומכת.

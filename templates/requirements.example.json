@@ -1,0 +1,88 @@
+{
+ "brief": {
+  "user_message": "תערוך לי את הסרטון, פתיחה מונפשת קצרה",
+  "topic": "עשרת אלפים צפיות עם Claude Code",
+  "answered": {
+   "topic": "נאמר בהודעה"
+  },
+  "preferences": [
+   "פתיחה מונפשת בשתי השניות הראשונות"
+  ]
+ },
+ "rules": {
+  "min_overlays": 1,
+  "min_brolls": 0
+ },
+ "requirements": [
+  {
+   "id": "R1",
+   "source": "video",
+   "candidate": "C1",
+   "said_at": [
+    7.7,
+    9.3
+   ],
+   "quote": "תזכרו את המספר 3",
+   "addressed_to": "viewer",
+   "status": "planned",
+   "instruction": "להציג את המספר 3 בגדול כשהוא נאמר — הצופה מתבקש לזכור אותו",
+   "target": null,
+   "show_at": [
+    8.9,
+    9.9
+   ],
+   "position": {
+    "x": 620,
+    "y": 560,
+    "note": "ליד הדובר, צד שמאל של הפריים"
+   },
+   "depends_on": [],
+   "cut": false,
+   "scene_ids": [
+    "remember3"
+   ],
+   "reason": ""
+  },
+  {
+   "id": "R2",
+   "source": "video",
+   "candidate": "C2",
+   "said_at": [
+    10.18,
+    12.36
+   ],
+   "quote": "עורך תציג את זה כאן לידי",
+   "addressed_to": "editor",
+   "status": "planned",
+   "instruction": "הוראה לעורך: לא להשאיר בסרטון; היא מבקשת להציג את '3' ליד הדובר",
+   "target": "cut",
+   "show_at": null,
+   "position": null,
+   "depends_on": [
+    "R1"
+   ],
+   "cut": true,
+   "scene_ids": [],
+   "reason": "נאמר לעורך, לא לצופה"
+  },
+  {
+   "id": "R3",
+   "source": "message",
+   "quote": "פתיחה מונפשת קצרה",
+   "addressed_to": "editor",
+   "status": "planned",
+   "instruction": "אנימציית פתיחה בשתי השניות הראשונות",
+   "target": null,
+   "show_at": [
+    0.5,
+    2.5
+   ],
+   "scene_ids": [
+    "opening"
+   ],
+   "cut": false,
+   "depends_on": [],
+   "reason": ""
+  }
+ ]
+}

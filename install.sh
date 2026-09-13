@@ -47,7 +47,7 @@ step "3/4  ספריות פייתון"
 PIPFLAGS=""
 python3 -c "import sys; sys.exit(0)" 2>/dev/null
 if ! python3 -m pip install --dry-run pillow >/dev/null 2>&1; then PIPFLAGS="--break-system-packages"; fi
-for mod in "PIL:pillow" "bidi:python-bidi" "faster_whisper:faster-whisper"; do
+for mod in "PIL:pillow" "bidi:python-bidi" "faster_whisper:faster-whisper" "numpy:numpy"; do
   m="${mod%%:*}"; pkg="${mod##*:}"
   if python3 -c "import $m" 2>/dev/null; then ok "$pkg"
   else
@@ -56,6 +56,13 @@ for mod in "PIL:pillow" "bidi:python-bidi" "faster_whisper:faster-whisper"; do
     python3 -c "import $m" 2>/dev/null && ok "$pkg הותקן" || { bad "$pkg נכשל — הרץ ידנית: pip3 install $pkg"; MISSING=1; }
   fi
 done
+
+# OpenCV: לא חובה — מאפשר לבדיקת האיכות לזהות פנים מוסתרות
+if python3 -c "import cv2" 2>/dev/null; then ok "opencv (זיהוי פנים בבדיקות)"
+else
+  python3 -m pip install -q $PIPFLAGS opencv-python-headless 2>/dev/null || python3 -m pip install -q --break-system-packages opencv-python-headless 2>/dev/null
+  python3 -c "import cv2" 2>/dev/null && ok "opencv הותקן" || warn "opencv לא הותקן — בדיקת 'פנים מוסתרות' תסומן כלא-רצה"
+fi
 
 step "4/4  מנוע הגרפיקות (אופציונלי)"
 if command -v node >/dev/null; then
@@ -69,15 +76,17 @@ else
   warn "בלי Node — תקבל כתוביות וחיתוכים, בלי גרפיקות"
 fi
 
-# שתי עותקי SKILL.md (תוסף + שכפול) חייבים להיות זהים
-if [ -f skills/reel/SKILL.md ] && [ -f .claude/skills/reel/SKILL.md ]; then
-  cmp -s skills/reel/SKILL.md .claude/skills/reel/SKILL.md || {
-    cp skills/reel/SKILL.md .claude/skills/reel/SKILL.md
-    warn "סונכרן SKILL.md בין שתי הצורות"
-  }
-fi
-
-mkdir -p work output caps
+# שני עותקי הסקיל (תוסף + שכפול) חייבים להיות זהים: SKILL.md והמפעיל reel
+for f in SKILL.md reel; do
+  if [ -f "skills/reel/$f" ]; then
+    cmp -s "skills/reel/$f" ".claude/skills/reel/$f" 2>/dev/null || {
+      mkdir -p .claude/skills/reel && cp "skills/reel/$f" ".claude/skills/reel/$f"
+      warn "סונכרן $f בין שתי הצורות"
+    }
+  fi
+done
+chmod +x skills/reel/reel .claude/skills/reel/reel scripts/reel.py 2>/dev/null
+python3 scripts/reel.py doctor >/dev/null 2>&1 && ok "reel doctor: המסלול המהיר זמין" || warn "reel doctor מצא חוסרים — הרץ: python3 scripts/reel.py doctor"
 echo
 if [ "$MISSING" = "0" ]; then
   printf "${GREEN}${BOLD}מוכן.${OFF}\n\nעכשיו הרץ:  ${BOLD}claude${OFF}\nותכתוב:     ${BOLD}תערוך לי את הסרטון הזה${OFF}  (וגרור את הקובץ)\n\n"

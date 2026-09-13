@@ -1,0 +1,188 @@
+{
+ "version": 1,
+ "timeline": "base",
+ "edit_id": "c0a287dac97a",
+ "keeps_frames": [
+  [
+   8,
+   186
+  ],
+  [
+   231,
+   303
+  ],
+  [
+   373,
+   379
+  ]
+ ],
+ "duration": 8.5333,
+ "styles": [
+  "highlight",
+  "fast"
+ ],
+ "groups": [
+  {
+   "id": "g001",
+   "start": 0.193,
+   "end": 1.483,
+   "words": [
+    {
+     "word": "שלום",
+     "start": 0.193,
+     "end": 0.853
+    },
+    {
+     "word": "לכולם,",
+     "start": 0.853,
+     "end": 1.333
+    }
+   ],
+   "emph": [
+    1
+   ],
+   "break_after": null,
+   "text": "שלום לכולם"
+  },
+  {
+   "id": "g002",
+   "start": 1.593,
+   "end": 2.74,
+   "words": [
+    {
+     "word": "היום",
+     "start": 1.593,
+     "end": 1.953
+    },
+    {
+     "word": "אני",
+     "start": 1.953,
+     "end": 2.153
+    },
+    {
+     "word": "אראה",
+     "start": 2.153,
+     "end": 2.453
+    },
+    {
+     "word": "לכם",
+     "start": 2.453,
+     "end": 2.773
+    }
+   ],
+   "emph": [
+    2
+   ],
+   "break_after": null,
+   "text": "היום אני אראה לכם"
+  },
+  {
+   "id": "g003",
+   "start": 2.773,
+   "end": 3.42,
+   "words": [
+    {
+     "word": "איך",
+     "start": 2.773,
+     "end": 3.033
+    },
+    {
+     "word": "הגעתי",
+     "start": 3.033,
+     "end": 3.453
+    }
+   ],
+   "emph": [
+    1
+   ],
+   "break_after": null,
+   "text": "איך הגעתי"
+  },
+  {
+   "id": "g004",
+   "start": 3.453,
+   "end": 4.76,
+   "words": [
+    {
+     "word": "לעשרת",
+     "start": 3.453,
+     "end": 3.993
+    },
+    {
+     "word": "אלפים",
+     "start": 3.993,
+     "end": 4.373
+    },
+    {
+     "word": "צפיות",
+     "start": 4.373,
+     "end": 4.793
+    }
+   ],
+   "emph": [
+    0
+   ],
+   "break_after": null,
+   "text": "לעשרת אלפים צפיות"
+  },
+  {
+   "id": "g005",
+   "start": 4.793,
+   "end": 5.783,
+   "words": [
+    {
+     "word": "עם",
+     "start": 4.793,
+     "end": 5.033
+    },
+    {
+     "word": "Claude",
+     "start": 5.033,
+     "end": 5.353
+    },
+    {
+     "word": "Code.",
+     "start": 5.353,
+     "end": 5.633
+    }
+   ],
+   "emph": [
+    1
+   ],
+   "break_after": null,
+   "text": "עם Claude Code"
+  },
+  {
+   "id": "g006",
+   "start": 5.933,
+   "end": 7.683,
+   "words": [
+    {
+     "word": "תזכרו",
+     "start": 5.933,
+     "end": 6.573
+    },
+    {
+     "word": "את",
+     "start": 6.573,
+     "end": 6.773
+    },
+    {
+     "word": "המספר",
+     "start": 6.773,
+     "end": 7.213
+    },
+    {
+     "word": "3.",
+     "start": 7.213,
+     "end": 7.533
+    }
+   ],
+   "emph": [
+    3
+   ],
+   "break_after": null,
+   "text": "תזכרו את המספר 3"
+  }
+ ]
+}

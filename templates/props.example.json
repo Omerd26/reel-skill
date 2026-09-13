@@ -1,0 +1,388 @@
+{
+ "video_path": "/Users/you/reels/demo/work/base.mp4",
+ "duration_seconds": 8.5333,
+ "duration_frames": 256,
+ "fps": 30,
+ "edit_id": "c0a287dac97a",
+ "keeps_frames": [
+  [
+   8,
+   186
+  ],
+  [
+   231,
+   303
+  ],
+  [
+   373,
+   379
+  ]
+ ],
+ "captions_style": "highlight",
+ "brand_color": "#E0701E",
+ "caption_offset": 0,
+ "watermark": false,
+ "hook": {
+  "text": "איך הגעתי לעשרת אלפים צפיות",
+  "highlight": "צפיות",
+  "variant": "highlight-box",
+  "start": 2.0,
+  "end": 4.4
+ },
+ "music": {
+  "src": "music/calm/chill_background_music.mp3",
+  "volume": 0.1
+ },
+ "rules": {
+  "min_overlays": 1,
+  "min_brolls": 0
+ },
+ "editing_plan": {
+  "overlay_scenes": [
+   {
+    "id": "opening",
+    "type": "custom_layers",
+    "role": "opening",
+    "start": 0.0,
+    "end": 1.9,
+    "requirement_ids": [
+     "R3"
+    ],
+    "rationale": "פתיחה מונפשת לפי הבקשה בהודעה",
+    "layers": [
+     {
+      "kind": "shape",
+      "shape": "circle",
+      "x": 340,
+      "y": 420,
+      "w": 400,
+      "h": 400,
+      "color": "#E0701E",
+      "stroke_width": 14,
+      "enter": "draw",
+      "enter_duration": 0.8
+     },
+     {
+      "kind": "text",
+      "text": "Claude Code",
+      "x": 140,
+      "y": 560,
+      "w": 800,
+      "h": 130,
+      "size": 96,
+      "stroke": 5,
+      "enter": "pop",
+      "enter_at": 0.35
+     }
+    ]
+   },
+   {
+    "id": "remember3",
+    "type": "custom_layers",
+    "start": 5.95,
+    "end": 8.45,
+    "requirement_ids": [
+     "R1"
+    ],
+    "transcript_phrase": "תזכרו את המספר 3",
+    "rationale": "R1+R2: להציג 3 ליד הדובר",
+    "layers": [
+     {
+      "kind": "text",
+      "text": "3",
+      "x": 600,
+      "y": 430,
+      "w": 320,
+      "h": 320,
+      "size": 260,
+      "weight": 900,
+      "color": "#FFFFFF",
+      "plate": "#E0701E",
+      "plate_radius": 40,
+      "padding": 30,
+      "enter": "pop",
+      "enter_at": 1.25,
+      "loop": "pulse"
+     },
+     {
+      "kind": "text",
+      "text": "תזכרו את המספר",
+      "x": 470,
+      "y": 800,
+      "w": 580,
+      "h": 90,
+      "size": 58,
+      "stroke": 5,
+      "enter": "slide-up",
+      "enter_at": 0.2
+     }
+    ]
+   }
+  ],
+  "broll_scenes": [],
+  "speaker_zooms": [
+   {
+    "start": 3.3,
+    "end": 5.8,
+    "peak": 1.06
+   }
+  ],
+  "effects": []
+ },
+ "words": [
+  {
+   "word": "שלום",
+   "start": 0.193,
+   "end": 0.853,
+   "probability": 0.995
+  },
+  {
+   "word": "לכולם,",
+   "start": 0.853,
+   "end": 1.333,
+   "probability": 1.0
+  },
+  {
+   "word": "היום",
+   "start": 1.593,
+   "end": 1.953,
+   "probability": 1.0
+  },
+  {
+   "word": "אני",
+   "start": 1.953,
+   "end": 2.153,
+   "probability": 1.0
+  },
+  {
+   "word": "אראה",
+   "start": 2.153,
+   "end": 2.453,
+   "probability": 0.999
+  },
+  {
+   "word": "לכם",
+   "start": 2.453,
+   "end": 2.773,
+   "probability": 1.0
+  },
+  {
+   "word": "איך",
+   "start": 2.773,
+   "end": 3.033,
+   "probability": 1.0
+  },
+  {
+   "word": "הגעתי",
+   "start": 3.033,
+   "end": 3.453,
+   "probability": 1.0
+  },
+  {
+   "word": "לעשרת",
+   "start": 3.453,
+   "end": 3.993,
+   "probability": 0.971
+  },
+  {
+   "word": "אלפים",
+   "start": 3.993,
+   "end": 4.373,
+   "probability": 0.999
+  },
+  {
+   "word": "צפיות",
+   "start": 4.373,
+   "end": 4.793,
+   "probability": 0.998
+  },
+  {
+   "word": "עם",
+   "start": 4.793,
+   "end": 5.033,
+   "probability": 0.997
+  },
+  {
+   "word": "Claude",
+   "start": 5.033,
+   "end": 5.353,
+   "probability": 0.32
+  },
+  {
+   "word": "Code.",
+   "start": 5.353,
+   "end": 5.633,
+   "probability": 0.792
+  },
+  {
+   "word": "תזכרו",
+   "start": 5.933,
+   "end": 6.573,
+   "probability": 0.996
+  },
+  {
+   "word": "את",
+   "start": 6.573,
+   "end": 6.773,
+   "probability": 0.998
+  },
+  {
+   "word": "המספר",
+   "start": 6.773,
+   "end": 7.213,
+   "probability": 0.999
+  },
+  {
+   "word": "3.",
+   "start": 7.213,
+   "end": 7.533,
+   "probability": 0.948
+  }
+ ],
+ "caption_groups": [
+  {
+   "id": "g001",
+   "start": 0.193,
+   "end": 1.483,
+   "break_after": null,
+   "words": [
+    {
+     "word": "שלום",
+     "start": 0.193,
+     "end": 0.853
+    },
+    {
+     "word": "לכולם",
+     "start": 0.853,
+     "end": 1.333,
+     "emphasis": true
+    }
+   ]
+  },
+  {
+   "id": "g002",
+   "start": 1.593,
+   "end": 2.74,
+   "break_after": null,
+   "words": [
+    {
+     "word": "היום",
+     "start": 1.593,
+     "end": 1.953
+    },
+    {
+     "word": "אני",
+     "start": 1.953,
+     "end": 2.153
+    },
+    {
+     "word": "אראה",
+     "start": 2.153,
+     "end": 2.453,
+     "emphasis": true
+    },
+    {
+     "word": "לכם",
+     "start": 2.453,
+     "end": 2.773
+    }
+   ]
+  },
+  {
+   "id": "g003",
+   "start": 2.773,
+   "end": 3.42,
+   "break_after": null,
+   "words": [
+    {
+     "word": "איך",
+     "start": 2.773,
+     "end": 3.033
+    },
+    {
+     "word": "הגעתי",
+     "start": 3.033,
+     "end": 3.453,
+     "emphasis": true
+    }
+   ]
+  },
+  {
+   "id": "g004",
+   "start": 3.453,
+   "end": 4.76,
+   "break_after": null,
+   "words": [
+    {
+     "word": "לעשרת",
+     "start": 3.453,
+     "end": 3.993,
+     "emphasis": true
+    },
+    {
+     "word": "אלפים",
+     "start": 3.993,
+     "end": 4.373
+    },
+    {
+     "word": "צפיות",
+     "start": 4.373,
+     "end": 4.793
+    }
+   ]
+  },
+  {
+   "id": "g005",
+   "start": 4.793,
+   "end": 5.783,
+   "break_after": null,
+   "words": [
+    {
+     "word": "עם",
+     "start": 4.793,
+     "end": 5.033
+    },
+    {
+     "word": "Claude",
+     "start": 5.033,
+     "end": 5.353,
+     "emphasis": true
+    },
+    {
+     "word": "Code",
+     "start": 5.353,
+     "end": 5.633
+    }
+   ]
+  },
+  {
+   "id": "g006",
+   "start": 5.933,
+   "end": 7.683,
+   "break_after": null,
+   "words": [
+    {
+     "word": "תזכרו",
+     "start": 5.933,
+     "end": 6.573
+    },
+    {
+     "word": "את",
+     "start": 6.573,
+     "end": 6.773
+    },
+    {
+     "word": "המספר",
+     "start": 6.773,
+     "end": 7.213
+    },
+    {
+     "word": "3",
+     "start": 7.213,
+     "end": 7.533,
+     "emphasis": true
+    }
+   ]
+  }
+ ]
+}
