@@ -27,6 +27,15 @@ def pixel(video, t, x, y, size=20):
 class RemotionRender(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Remotion downloads a headless browser on first use. Offline, that fails before any
+        # frame is rendered — that says nothing about our code, so skip with the reason.
+        probe = subprocess.run(
+            ["node", "--input-type=module", "-e",
+             "import {ensureBrowser} from '@remotion/renderer'; await ensureBrowser(); console.log('BROWSER_OK')"],
+            cwd=str(ROOT / "remotion"), capture_output=True, text=True, timeout=600)
+        if "BROWSER_OK" not in probe.stdout:
+            raise unittest.SkipTest("Remotion headless browser unavailable (offline?): "
+                                    + (probe.stderr.strip().splitlines() or ["?"])[-1][:160])
         cls.dir = tmpdir()
         segs = [("tone", 2.0)]
         words = [{"word": w, "start": 0.2 + i * 0.45, "end": 0.6 + i * 0.45}

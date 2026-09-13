@@ -155,42 +155,73 @@ def extract_frame(video: str | Path, t: float, dst: str | Path, width: int | Non
 AAC_PRIMING = 2048 / 48000     # the delay Remotion's muxer leaves uncompensated (measured 13.9.2026)
 
 
-def fix_audio_delay(path: str | Path, reference: str | Path | None = None, fps: int = FPS) -> float:
-    """Remotion's MP4 carries no AAC encoder-delay compensation: the 2048
-    priming samples play as real audio, so speech lands ~43ms after the
-    picture (measured 13.9.2026: onset 0.614s vs 0.571s in the base video).
-    The surplus audio length is NOT the delay — the track is also padded to a
-    whole AAC frame (a duration-based trim over-corrected by 8ms). So: measure
-    the real offset against the reference (the base video) by cross-correlation,
-    fall back to the known priming length. Video is copied untouched; the audio
-    is trimmed, padded back to the exact video length, and re-encoded (ffmpeg
-    writes proper skip-samples). Returns the seconds removed."""
+def true_peak_db(path: str | Path) -> float | None:
+    r = subprocess.run([tool("ffmpeg"), "-hide_banner", "-nostats", "-i", str(path), "-vn",
+                        "-af", "ebur128=peak=true", "-f", "null", "-"], capture_output=True, text=True)
+    import re
+    tail = r.stderr[r.stderr.rfind("Summary:"):] if "Summary:" in r.stderr else ""
+    m = re.search(r"Peak:\s+(-?[\d.]+) dBFS", tail)
+    return float(m.group(1)) if m else None
+
+
+PEAK_CEILING_DB = -1.0       # platforms re-encode; peaks above ~-1 dBTP clip on the way
+
+
+def finish_audio(path: str | Path, reference: str | Path | None = None, fps: int = FPS,
+                 limit_peaks: bool = True) -> dict:
+    """Last audio pass on a rendered reel, in ONE re-encode (video copied untouched):
+
+    1. Remotion's MP4 carries no AAC encoder-delay compensation: the 2048 priming
+       samples play as real audio, so speech lands ~43ms after the picture (measured
+       13.9.2026). The surplus audio length is NOT the delay (the track is padded to
+       a whole AAC frame) — so measure the offset against the reference (base video)
+       by cross-correlation; fall back to the known priming length.
+    2. Peaks above -1 dBTP get a transparent lookahead limiter (the real take peaked
+       at -0.4 dBFS straight from the phone). Quiet audio is left alone.
+    Returns {"delay": s, "peak_before": dB, "limited": bool}."""
     info = probe(path)
+    result = {"delay": 0.0, "peak_before": None, "limited": False}
     if not info.get("has_audio") or not info.get("frames"):
-        return 0.0
+        return result
     vdur = info["frames"] / fps
     surplus = float(info.get("audio_duration") or 0) - vdur
-    if surplus <= 0.005:
-        return 0.0
-    delay = min(surplus, AAC_PRIMING)
-    if reference is not None:
-        try:
-            from .qa import audio_offset_ms
-            measured = audio_offset_ms(Path(path), Path(reference))
-        except Exception:
-            measured = None
-        if measured is not None and abs(measured / 1000 - AAC_PRIMING) <= 0.015:
-            delay = measured / 1000
-        elif measured is not None and abs(measured) <= 5:
+    delay = 0.0
+    if surplus > 0.005:
+        delay = min(surplus, AAC_PRIMING)
+        if reference is not None:
+            try:
+                from .qa import audio_offset_ms
+                measured = audio_offset_ms(Path(path), Path(reference))
+            except Exception:
+                measured = None
+            if measured is not None and abs(measured / 1000 - AAC_PRIMING) <= 0.015:
+                delay = measured / 1000
+            elif measured is not None and abs(measured) <= 5:
+                delay = 0.0
+        if delay <= 0.003:
             delay = 0.0
-    if delay <= 0.003:
-        return 0.0
+    peak = true_peak_db(path) if limit_peaks else None
+    result["peak_before"] = peak
+    limit = limit_peaks and peak is not None and peak > PEAK_CEILING_DB
+    if not delay and not limit:
+        return result
+    chain = []
+    if delay:
+        chain.append(f"atrim=start={delay:.4f},asetpts=PTS-STARTPTS,apad")
+    if limit:
+        # sample ceiling -1.6 dBFS leaves room for inter-sample (true) peaks; level=false = no auto gain
+        chain.append("alimiter=limit=0.83:attack=5:release=60:level=false")
     path = Path(path)
-    tmp = path.with_name(path.stem + ".avfix" + path.suffix)
+    tmp = path.with_name(path.stem + ".audiofix" + path.suffix)
     run([tool("ffmpeg"), "-y", "-v", "error", "-i", str(path),
-         "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy",
-         "-af", f"atrim=start={delay:.4f},asetpts=PTS-STARTPTS,apad",
+         "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy", "-af", ",".join(chain),
          "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", f"{vdur:.4f}",
-         "-movflags", "+faststart", str(tmp)], "תיקון היסט האודיו")
+         "-movflags", "+faststart", str(tmp)], "גימור האודיו")
     tmp.replace(path)
-    return round(delay, 4)
+    result.update(delay=round(delay, 4), limited=bool(limit))
+    return result
+
+
+def fix_audio_delay(path: str | Path, reference: str | Path | None = None, fps: int = FPS) -> float:
+    """Delay-only variant of finish_audio (kept for callers and tests)."""
+    return finish_audio(path, reference, fps, limit_peaks=False)["delay"]

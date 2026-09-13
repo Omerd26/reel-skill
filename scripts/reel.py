@@ -247,41 +247,100 @@ def cmd_understand(args) -> int:
 
 
 # ── cut ─────────────────────────────────────────────────────────────────────
+CUT_DEFAULTS = {"cut_silences": True, "trim_ends": True, "head_pad": 0.20, "tail_pad": 0.45}
+
+
+def _parse_range(spec: str) -> tuple[float, float]:
+    a, b = (float(x) for x in spec.split("-", 1))
+    if b <= a:
+        raise ValueError
+    return round(a, 3), round(b, 3)
+
+
 def cmd_cut(args) -> int:
+    """Cut decisions are cumulative and stored in work/cuts.json: every --remove is kept
+    until --restore takes it back, and settings (silence cutting, trimming, pads) stay
+    as last chosen. A second `reel cut --remove` used to rebuild the list from scratch
+    and silently brought the first removed stretch back."""
     from reelkit.cutting import write_base
     p = get_project(args)
     tr = read_json(p.transcript)
     if not tr:
         return fail("אין תמלול — הרץ reel transcribe")
-    removals = []
+    cuts_path = p.work / "cuts.json"
+    cuts = read_json(cuts_path) or {"manual": [], "settings": dict(CUT_DEFAULTS)}
+    settings = {**CUT_DEFAULTS, **(cuts.get("settings") or {})}
+    manual = list(cuts.get("manual") or [])
+
+    for spec in args.remove or []:
+        try:
+            a, b = _parse_range(spec)
+        except ValueError:
+            return fail(f"--remove בפורמט start-end בשניות (ציר המקור), קיבלתי '{spec}'")
+        if not any(abs(m["start"] - a) < 0.01 and abs(m["end"] - b) < 0.01 for m in manual):
+            manual.append({"start": a, "end": b, "reason": "manual", "added": time.strftime("%Y-%m-%dT%H:%M:%S")})
+    for spec in args.restore or []:
+        if spec == "all":
+            manual = []
+            continue
+        try:
+            a, b = _parse_range(spec)
+        except ValueError:
+            return fail(f"--restore בפורמט start-end (כמו ב---list) או all, קיבלתי '{spec}'")
+        keep = [m for m in manual if not (abs(m["start"] - a) < 0.05 and abs(m["end"] - b) < 0.05)]
+        if len(keep) == len(manual):
+            return fail(f"אין חיתוך ידני {a:.2f}-{b:.2f}. הרשימה: reel cut --list")
+        manual = keep
+    if args.silence is not None:
+        settings["cut_silences"] = args.silence
+    if args.trim is not None:
+        settings["trim_ends"] = args.trim
+    if args.head_pad is not None:
+        settings["head_pad"] = args.head_pad
+    if args.tail_pad is not None:
+        settings["tail_pad"] = args.tail_pad
+
+    req_removals = []
     req = read_json(p.requirements) or {}
     for q in req.get("requirements") or []:
         if q.get("cut") and q.get("status") in ("planned", "done") and q.get("said_at"):
-            s, e = q.get("cut_range") or q["said_at"][:2]
-            removals.append({"start": max(0.0, float(s) - 0.08), "end": float(e) + 0.08,
-                             "reason": f"requirement {q.get('id')}"})
-    for spec in args.remove or []:
-        try:
-            a, b = (float(x) for x in spec.split("-", 1))
-        except ValueError:
-            return fail(f"--remove בפורמט start-end בשניות (ציר המקור), קיבלתי '{spec}'")
-        removals.append({"start": a, "end": b, "reason": "manual"})
+            s0, e0 = q.get("cut_range") or q["said_at"][:2]
+            req_removals.append({"start": max(0.0, float(s0) - 0.08), "end": float(e0) + 0.08,
+                                 "reason": f"requirement {q.get('id')}"})
+
+    if args.list:
+        say("הגדרות: " + json.dumps(settings, ensure_ascii=False))
+        say(f"חיתוכים ידניים ({len(manual)}) — לביטול: reel cut --restore <start-end>")
+        for m in manual:
+            say(f"  {m['start']:.2f}-{m['end']:.2f}  (נוסף {m.get('added', '?')})")
+        say(f"חיתוכים מדרישות ({len(req_removals)}) — לביטול: cut:false בדרישה")
+        for r in req_removals:
+            say(f"  {r['start']:.2f}-{r['end']:.2f}  {r['reason']}")
+        edit = read_json(p.edit) or {}
+        sil = [r for r in edit.get("removals") or [] if r["reason"] == "silence"]
+        say(f"שקטים שנחתכו בחיתוך האחרון ({len(sil)}) — לביטול כולם: --no-silence")
+        for r in sil:
+            say(f"  {r['start']:.2f}-{r['end']:.2f}")
+        return 0
+
+    removals = req_removals + [{"start": m["start"], "end": m["end"], "reason": "manual"} for m in manual]
     old_edit = read_json(p.edit)
     say("חותך ומקודד את הווידאו הבסיסי...")
     t0 = time.time()
     try:
         edit = write_base(p.source, tr, p.base, p.base_transcript, removals,
-                          trim_ends=not args.no_trim, cut_silences=not args.no_silence,
-                          head_pad=args.head_pad, tail_pad=args.tail_pad)
+                          trim_ends=settings["trim_ends"], cut_silences=settings["cut_silences"],
+                          head_pad=settings["head_pad"], tail_pad=settings["tail_pad"])
     except (MediaError, RuntimeError) as ex:
         return fail(str(ex))
+    write_json(cuts_path, {"manual": manual, "settings": settings})
     write_json(p.edit, edit)
     shutil.rmtree(p.caps, ignore_errors=True)
     p.caps.mkdir(exist_ok=True)
     p.mark("cut", edit_id=edit["edit_id"], frames=edit["base"]["frames"])
     n_sil = sum(1 for r in edit["removals"] if r["reason"] == "silence")
     say(f"✅ base.mp4: {edit['base']['frames']} פריימים = {edit['base']['duration_seconds']}s "
-        f"(נחתכו {edit['removed_seconds']}s: {n_sil} שקטים, {len(edit['removals']) - n_sil} קטעים לפי בקשה, ראש/זנב) "
+        f"(נחתכו {edit['removed_seconds']}s: {n_sil} שקטים, {len(manual)} ידניים, {len(req_removals)} מדרישות, ראש/זנב) "
         f"· {time.time() - t0:.1f}s")
     if n_sil == 0 and not removals:
         say("   אין שקטים ארוכים לחיתוך — הבסיס הוא המקור (עם ניקוי ראש/זנב). כל הנתיבים עודכנו.")
@@ -375,17 +434,25 @@ def refresh_props(p: Project, quiet: bool) -> int:
         def mv(t, side):
             s = base_to_src(float(t), old_keeps, side=side)
             return round(src_to_base_near(s, new_keeps), 3) if s is not None else float(t)
+
+        def move_fields(obj, fields):
+            # Only NUMERIC time fields move. `anchor` is a time on a zoom but a position
+            # ("top-center") on an overlay — converting that string crashed the re-cut.
+            for f, side in fields:
+                v = obj.get(f)
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    obj[f] = mv(v, side)
+
         plan = props.get("editing_plan") or {}
-        for key in ("overlay_scenes", "broll_scenes", "speaker_zooms"):
+        span = (("start", "start"), ("anchor", "start"), ("end", "end"))
+        for key in ("overlay_scenes", "broll_scenes", "speaker_zooms", "effects"):
             for sc in plan.get(key) or []:
-                for f, side in (("start", "start"), ("anchor", "start"), ("end", "end")):
-                    if f in sc:
-                        sc[f] = mv(sc[f], side)
+                move_fields(sc, span)
                 moved += 1
-        hook = props.get("hook") or {}
-        for f, side in (("start", "start"), ("end", "end")):
-            if f in hook:
-                hook[f] = mv(hook[f], side)
+        for sfx in plan.get("sfx_placements") or []:
+            move_fields(sfx, (("timestamp_s", "start"),))
+            moved += 1
+        move_fields(props.get("hook") or {}, (("start", "start"), ("end", "end")))
     props.update({
         "video_path": edit["base"]["path"],
         "words": base_tr.get("words") or [],
@@ -494,11 +561,13 @@ def render_full(p: Project, out: Path) -> int:
     if proc.returncode != 0 or not result or not result.get("success"):
         say("\n".join(tail[-25:]))
         return fail(f"הרנדר נכשל: {(result or {}).get('error', 'ראה פלט')}")
-    from reelkit.media import fix_audio_delay
+    from reelkit.media import finish_audio
     edit = read_json(p.edit) or {}
-    removed = fix_audio_delay(tmp, reference=(edit.get("base") or {}).get("path"))
-    if removed:
-        say(f"  תוקן היסט אודיו של המנוע: {removed * 1000:.1f}ms (השהיית מקודד AAC)")
+    fin = finish_audio(tmp, reference=(edit.get("base") or {}).get("path"))
+    if fin["delay"]:
+        say(f"  תוקן היסט אודיו של המנוע: {fin['delay'] * 1000:.1f}ms (השהיית מקודד AAC)")
+    if fin["limited"]:
+        say(f"  שיא האודיו היה {fin['peak_before']} dB — הוגבל ל-‎-1 dB כדי שלא ייחתך בהעלאה")
     tmp.replace(out)
     say(f"✅ רונדר ב-{time.time() - t0:.0f}s → {out}")
     return 0
@@ -545,7 +614,8 @@ def render_fast(p: Project, out: Path) -> int:
     shutil.rmtree(p.caps, ignore_errors=True)
     p.caps.mkdir()
     cards = [] if props.get("captions_style") == "none" else cap.to_cards(doc)
-    entries = mc.render_cards(cards, props.get("hook"), p.caps, edit["base"]["duration_seconds"])
+    entries = mc.render_cards(cards, props.get("hook"), p.caps, edit["base"]["duration_seconds"],
+                              caption_offset=props.get("caption_offset") or 0)
     tmp = out.with_name(out.stem + ".partial.mp4")
     say("מרנדר (מסלול מהיר)...")
     t0 = time.time()
@@ -553,6 +623,10 @@ def render_fast(p: Project, out: Path) -> int:
         rd.compose(edit["base"]["path"], [], entries, str(tmp))
     except RuntimeError as ex:
         return fail(str(ex))
+    from reelkit.media import finish_audio
+    fin = finish_audio(tmp)
+    if fin["limited"]:
+        say(f"  שיא האודיו היה {fin['peak_before']} dB — הוגבל ל-‎-1 dB כדי שלא ייחתך בהעלאה")
     tmp.replace(out)
     plan = props.get("editing_plan") or {}
     skipped = len(plan.get("overlay_scenes") or []) + len(plan.get("broll_scenes") or [])
@@ -672,12 +746,16 @@ def main() -> int:
     sp.add_argument("--every", type=float, default=2.0, help="פריים סקירה כל N שניות")
     sp.set_defaults(fn=cmd_understand)
     sp = with_project(sub.add_parser("cut"))
-    sp.add_argument("--remove", action="append", help="start-end בשניות (ציר המקור), אפשר כמה פעמים")
-    sp.add_argument("--no-silence", action="store_true", help="בלי חיתוך שקטים")
-    sp.add_argument("--no-trim", action="store_true", help="בלי ניקוי ראש/זנב")
-    sp.add_argument("--head-pad", type=float, default=0.20, help="שניות לפני המילה הראשונה (ברירת מחדל 0.20)")
-    sp.add_argument("--tail-pad", type=float, default=0.45,
-                    help="שניות אחרי המילה האחרונה שנשארת — סיום מכוון; הגדל כשגרפיקה צריכה להישאר בסוף (ברירת מחדל 0.45)")
+    sp.add_argument("--remove", action="append", help="start-end בשניות (ציר המקור); נשמר לחיתוכים הבאים")
+    sp.add_argument("--restore", action="append", help="start-end של חיתוך ידני להחזיר, או all")
+    sp.add_argument("--list", action="store_true", help="הצג את כל החיתוכים וההגדרות בלי לחתוך")
+    sp.add_argument("--no-silence", dest="silence", action="store_false", default=None, help="בלי חיתוך שקטים (נשמר)")
+    sp.add_argument("--silence", dest="silence", action="store_true", help="להחזיר חיתוך שקטים")
+    sp.add_argument("--no-trim", dest="trim", action="store_false", default=None, help="בלי ניקוי ראש/זנב (נשמר)")
+    sp.add_argument("--trim", dest="trim", action="store_true", help="להחזיר ניקוי ראש/זנב")
+    sp.add_argument("--head-pad", type=float, default=None, help="שניות לפני המילה הראשונה (ברירת מחדל 0.20, נשמר)")
+    sp.add_argument("--tail-pad", type=float, default=None,
+                    help="שניות אחרי המילה האחרונה שנשארת — סיום מכוון (ברירת מחדל 0.45, נשמר)")
     sp.set_defaults(fn=cmd_cut)
     sp = with_project(sub.add_parser("captions"))
     g = sp.add_mutually_exclusive_group()

@@ -385,6 +385,11 @@ def validate(props_path: str | Path, project_root: str | Path | None = None,
     style = props.get("captions_style", "highlight")
     if style not in CAPTION_STYLES:
         r.err(f"captions_style '{style}' לא קיים ({sorted(CAPTION_STYLES)})")
+    off = props.get("caption_offset") or 0
+    if not isinstance(off, (int, float)) or not -900 <= off <= 300:
+        r.err(f"caption_offset={off} — מספר פיקסלים בין ‎-900 (למעלה) ל-300 (למטה); מעבר לזה הכתוביות יוצאות מהמסך")
+    elif off > 80:
+        r.warn(f"caption_offset={off} מוריד את הכתוביות לאזור הכיתוב והכפתורים של אינסטגרם")
     groups = props.get("caption_groups")
     if style != "none":
         if groups:

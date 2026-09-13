@@ -22,9 +22,34 @@ from pathlib import Path
 
 from . import FPS, HEIGHT, WIDTH
 from . import captions as cap
-from .media import MediaError, extract_frame, probe, tool
+from .media import MediaError, extract_frame, fingerprint, probe, tool
 from .project import Project, read_json, write_json
 from .timeline import src_to_base_near
+
+
+def inputs_signature(project: Project, output: Path) -> dict:
+    """Fingerprints of everything a QA report is about. finalize() recomputes them:
+    a report about a replaced/missing video or a changed plan is not a report about
+    what is being delivered (before 13.9.2026 finalize approved exactly that)."""
+    import hashlib
+
+    def fp(path: Path) -> str | None:
+        return fingerprint(path) if Path(path).is_file() else None
+
+    def text_fp(path: Path) -> str | None:
+        if not Path(path).is_file():
+            return None
+        return hashlib.sha1(Path(path).read_bytes()).hexdigest()[:16]
+
+    edit = read_json(project.edit) or {}
+    return {"output_path": str(Path(output).resolve()), "output": fp(output), "props": text_fp(project.props),
+            "captions": text_fp(project.captions), "requirements": text_fp(project.requirements),
+            "edit_id": edit.get("edit_id")}
+
+
+def signature_id(sig: dict) -> str:
+    import hashlib
+    return hashlib.sha1(json.dumps(sig, sort_keys=True).encode()).hexdigest()[:16]
 
 
 def _status(ok: bool | None, warn_only: bool = False) -> str:
@@ -446,11 +471,15 @@ def run(project: Project, output: Path, tier: str) -> dict:
         except Exception as ex:  # sheets are a convenience; frames exist regardless
             add("contact_sheets", "warn", f"לא נוצרו דפי פריימים: {ex}")
 
-    report = {"output": str(Path(output).resolve()), "tier": tier, "frames": frames,
+    sig = inputs_signature(project, output)
+    report = {"report_id": signature_id(sig), "inputs": sig,
+              "output": str(Path(output).resolve()), "tier": tier, "frames": frames,
               "expected_frames": expected, "checks": checks, "points": points, "sheets": sheets,
               "summary": {s: sum(1 for c in checks if c["status"] == s) for s in ("pass", "warn", "fail", "not_run")}}
     write_json(qa_dir / "report.json", report)
-    write_json(qa_dir / "review.json", review_template(project, props, points, sheets, tier))
+    review = review_template(project, props, points, sheets, tier)
+    review["report_id"] = report["report_id"]
+    write_json(qa_dir / "review.json", review)
     return report
 
 
@@ -504,6 +533,31 @@ def finalize(project: Project) -> tuple[bool, str]:
     review = read_json(project.qa / "review.json")
     if not report or not review:
         return False, "אין qa/report.json או qa/review.json — הרץ קודם reel qa"
+    stale = []
+    sig = report.get("inputs")
+    if not sig:
+        stale.append("הדוח נוצר בגרסה ישנה בלי חתימת קבצים")
+    else:
+        out = Path(sig["output_path"])
+        now = inputs_signature(project, out)
+        names = {"output": f"הסרטון {out.name}", "props": "work/props.json", "captions": "work/captions.json",
+                 "requirements": "work/requirements.json", "edit_id": "החיתוך (edit.json)"}
+        if not out.is_file():
+            stale.append(f"הסרטון שנבדק לא קיים: {out}")
+        for key, label in names.items():
+            if key == "output" and not out.is_file():
+                continue
+            if now.get(key) != sig.get(key):
+                stale.append(f"{label} השתנה מאז הבדיקה")
+        render = (project.load().get("stages") or {}).get("render") or {}
+        if render.get("output") and Path(render["output"]).resolve() != out.resolve():
+            stale.append(f"הרנדר האחרון הוא {render['output']}, והדוח על {out}")
+    if review.get("report_id") != report.get("report_id"):
+        stale.append("review.json שייך לדוח אחר")
+    if stale:
+        msg = "✗ הדוח לא תקף לסרטון הנוכחי — הרץ reel qa (ואז צפייה מחדש):\n  " + "\n  ".join(stale)
+        (project.qa / "summary.txt").write_text(msg, encoding="utf-8")
+        return False, msg
     lines = []
     fails = [c for c in report["checks"] if c["status"] == "fail"]
     pending = [i for i in review["items"] if i["status"] == "pending"]

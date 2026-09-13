@@ -116,7 +116,7 @@ def draw_line(d, vis, y, font, emph_vis, fill=WHITE, accent=ORANGE, stroke=STROK
     return full_w
 
 
-def render_card(text, emph, fp_or_font, path, break_after=None, words=None):
+def render_card(text, emph, fp_or_font, path, break_after=None, words=None, baseline_y=BASELINE_Y):
     """מחזיר את מספר השורות וגודל הפונט שבו השתמש (מקטין במקום לחתוך שורה שלישית)."""
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
@@ -135,7 +135,7 @@ def render_card(text, emph, fp_or_font, path, break_after=None, words=None):
     asc, desc = font.getmetrics()
     lh = asc + desc
     total = len(lines) * lh + (len(lines) - 1) * LINE_GAP
-    y = BASELINE_Y - total
+    y = baseline_y - total
     for ln in lines:
         # ⚠️ bidi מופעל פעם אחת על השורה השלמה, ואז מחפשים את המילה המודגשת בטקסט הוויזואלי.
         vis = shape(ln)
@@ -172,9 +172,11 @@ def render_hook(hook, fp, path):
     img.save(path)
 
 
-def render_cards(cards, hook, outdir, duration=None):
+def render_cards(cards, hook, outdir, duration=None, caption_offset=0):
     """cards: [{start, end, text, words?, emph?, break_after?}] בציר הערוך.
+    caption_offset: הזזה אנכית בפיקסלים (חיובי = למטה) — אותה הגדרה כמו ב-Remotion.
     כותב PNG לכל כרטיס + overlays.json ומחזיר את הרשימה."""
+    baseline = max(300, min(H - 120, BASELINE_Y + int(caption_offset or 0)))
     fp = find_font()
     if not fp:
         raise RuntimeError("לא נמצא פונט עברי. שים Heebo-ExtraBold.ttf ב-assets/fonts")
@@ -197,7 +199,7 @@ def render_cards(cards, hook, outdir, duration=None):
         if e <= s:
             continue
         p = os.path.join(outdir, f"cap_{i:03d}.png")
-        n_lines, size = render_card(txt, c.get("emph"), fp, p, c.get("break_after"), c.get("words"))
+        n_lines, size = render_card(txt, c.get("emph"), fp, p, c.get("break_after"), c.get("words"), baseline)
         if size < FONT_SIZE:
             shrunk.append(f"«{txt}» ({size}px)")
         entries.append({"png": p, "start": round(s, 3), "end": round(e, 3), "kind": "caption"})

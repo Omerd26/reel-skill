@@ -173,9 +173,80 @@ def parse_digits(text: str) -> list[float]:
     return vals
 
 
+def _parse_word_number(tokens: list[str]) -> tuple[float | None, int]:
+    """Parse ONE Hebrew number from the start of `tokens`; return (value, tokens used).
+
+    Grammar (the way numbers are said): [units] "מאות" | "מאה" | "מאתיים", then tens,
+    then ["ו"]units, optionally a teen ("שלוש עשרה"), and a scale ("אלף", "אלפים",
+    "מיליון") that multiplies what came before and resets the group. A word that
+    cannot continue the number (a second unit after a unit, tens after tens, a
+    comma after the previous word) ends it — "אחד, שניים, שלושה" is three numbers,
+    not 6; "שלוש מאות" is 300, not 103."""
+    total, group = 0.0, 0.0
+    last = None                     # "unit" | "teen" | "tens" | "hundreds" | "scale" | "half"
+    last_unit = 0.0
+    used = 0
+    i = 0
+    while i < len(tokens):
+        raw = tokens[i]
+        word = display_word(raw)
+        if word == "ו" and i + 1 < len(tokens) and _lookup(tokens[i + 1])[1] is not None and used:
+            i += 1
+            continue
+        stem, table = _lookup(word)
+        if table is None:
+            break
+        if used and tokens[i - 1].strip()[-1:] in ",.;:?!":
+            break                   # "אחד, שניים" — the speaker listed, not composed
+        if table is UNITS:
+            val = UNITS[stem]
+            if stem in ("עשר", "עשרה") and last == "unit" and last_unit < 10:
+                group += 10         # "שלוש עשרה" = 13
+                last = "teen"
+            elif last in ("unit", "teen", "half"):
+                break
+            else:
+                group += val
+                last, last_unit = "unit", val
+        elif table is TENS:
+            if last in ("unit", "teen", "tens", "half"):
+                break
+            group += TENS[stem]
+            last = "tens"
+        elif table is HUNDREDS:
+            if stem == "מאות":
+                if last != "unit" or last_unit < 3:
+                    break
+                group += last_unit * 100 - last_unit     # "שלוש" + "מאות" = 300
+            else:
+                if last not in (None, "scale"):
+                    break
+                group += HUNDREDS[stem]
+            last = "hundreds"
+        elif table is HALF:
+            if last is not None:
+                break
+            group += 0.5
+            last = "half"
+        elif table is SCALES:
+            if stem == "אלפיים":
+                if last not in (None, "scale"):
+                    break
+                total += 2000
+            else:
+                total += (group or 1) * SCALES[stem]
+                group = 0.0
+            last = "scale"
+        used = i + 1
+        i += 1
+    if not used:
+        return None, 0
+    return total + group, used
+
+
 def spoken_numbers(words: list[dict]) -> list[dict]:
-    """Every number the speaker said, with time: digits ("10,000", "5.1") and
-    Hebrew number words ("עשרת אלפים", "שלושה"). Returns [{value, start, end, text}]."""
+    """Every number the speaker said, with time: digits ("10,000", "5.1", "10 אלף") and
+    Hebrew number words ("שלוש מאות", "עשרת אלפים"). Returns [{value, start, end, text}]."""
     out = []
     i, n = 0, len(words)
     while i < n:
@@ -185,38 +256,20 @@ def spoken_numbers(words: list[dict]) -> list[dict]:
         if digits:
             val = digits[0]
             j = i + 1
-            if j < n:
+            if j < n and not w["word"].strip().endswith((",", ".")):
                 stem, table = _lookup(words[j].get("word", ""))
-                if table is SCALES:
+                if table is SCALES and stem != "אלפיים":
                     val *= SCALES[stem]
                     j += 1
             out.append({"value": val, "start": w["start"], "end": words[j - 1]["end"],
                         "text": " ".join(display_word(x["word"]) for x in words[i:j])})
             i = j
             continue
-        stem, table = _lookup(token)
-        if table is None:
+        value, used = _parse_word_number([x.get("word", "") for x in words[i:i + 12]])
+        if value is None:
             i += 1
             continue
-        total, current, j = 0.0, 0.0, i
-        while j < n:
-            stem, table = _lookup(words[j].get("word", ""))
-            if table is None:
-                if display_word(words[j]["word"]) == "ו" and j + 1 < n and _lookup(words[j + 1]["word"])[1]:
-                    j += 1
-                    continue
-                break
-            if table is SCALES:
-                current = (current or 1) * SCALES[stem]
-                total += current
-                current = 0
-            elif table is HALF:
-                current += 0.5
-            else:
-                current += table[stem]
-            j += 1
-        total += current
-        out.append({"value": total, "start": w["start"], "end": words[j - 1]["end"],
-                    "text": " ".join(display_word(x["word"]) for x in words[i:j])})
-        i = max(j, i + 1)
+        out.append({"value": value, "start": w["start"], "end": words[i + used - 1]["end"],
+                    "text": " ".join(display_word(x["word"]) for x in words[i:i + used])})
+        i += used
     return out
