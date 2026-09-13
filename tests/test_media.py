@@ -151,6 +151,29 @@ class Validation(unittest.TestCase):
         bad = {**ok, "value": 7}
         self.assertTrue(any("לא נאמר" in e for e in self.errors(editing_plan={"overlay_scenes": [bad]})))
 
+    def test_anchor_on_detected_face_warns(self):
+        und = {"frames": [{"t": 5.0, "faces": [[300, 820, 460, 460]]}]}   # low selfie face
+        write_json(self.dir / "work_und.json", und)
+        proj = self.dir / "proj"
+        (proj / "work").mkdir(parents=True, exist_ok=True)
+        write_json(proj / "project.json", {"stages": {}})
+        write_json(proj / "work" / "understanding.json", und)
+        write_json(proj / "work" / "requirements.json", {"requirements": [], "rules": {}})
+        scene = {"id": "rank", "type": "medal_rank", "items": [{"label": "א"}, {"label": "ב"}], "start": 4.0, "end": 6.0}
+        props = json.loads(self.props(editing_plan={"overlay_scenes": [scene]}).read_text(encoding="utf-8"))
+        props["rules"] = {"min_overlays": 0, "min_brolls": 0, "zoom_every_seconds": 0}
+        pp = write_json(proj / "work" / "props.json", props)
+        warns = self.validate(pp, proj, check_files=False).warns
+        self.assertTrue(any("נופל על הפנים" in w for w in warns), warns)
+        scene["anchor"] = "top-center"
+        props["editing_plan"]["overlay_scenes"] = [scene]
+        write_json(pp, props)
+        warns = self.validate(pp, proj, check_files=False).warns
+        self.assertFalse(any("נופל על הפנים" in w for w in warns), warns)
+        scene["anchor"] = "middle"
+        write_json(pp, props)
+        self.assertTrue(any("anchor" in e for e in self.validate(pp, proj, check_files=False).errors))
+
     def test_custom_layers_schema(self):
         good = {"id": "x", "type": "custom_layers", "start": 4.0, "end": 6.0,
                 "layers": [{"kind": "text", "text": "3", "x": 600, "y": 400, "w": 300, "h": 300, "enter": "pop"}]}
@@ -179,6 +202,32 @@ class Understanding(unittest.TestCase):
         rel = [r for r in find_relations(words, cues) if r["type"] == "remember_then_use"]
         self.assertEqual(rel[0]["values"], [3.0])
         self.assertTrue(rel[0]["possible_later_uses"])
+
+
+class FaceCoverage(unittest.TestCase):
+    """Regression 13.9 (real take): a small number on the speaker's mouth passed QA at
+    the old 20% / 6% thresholds. Synthetic textured frame + drawn text, no real face."""
+
+    def test_small_text_on_face_is_caught_and_clean_frame_is_not(self):
+        try:
+            import numpy as np
+            from PIL import Image, ImageDraw, ImageFont
+        except ImportError:
+            self.skipTest("numpy/Pillow missing")
+        from reelkit.qa import FACE_COVER_THRESHOLD, face_coverage, graphics_mask
+        d = tmpdir()
+        rng = np.random.default_rng(7)
+        base = (rng.integers(90, 170, (1920, 1080, 3))).astype("uint8")
+        Image.fromarray(base).resize((540, 960)).resize((1080, 1920)).save(d / "base.png")
+        box = [290, 855, 459, 459]
+        font = ImageFont.truetype(str(ROOT / "assets" / "fonts" / "Heebo-ExtraBold.ttf"), 50)
+        img = Image.open(d / "base.png").convert("RGB")
+        ImageDraw.Draw(img).text((480, 1130), "23", font=font, fill="white", stroke_width=3, stroke_fill="black")
+        img.save(d / "on_face.png")
+        clean = face_coverage(graphics_mask(d / "base.png", d / "base.png", 1.0), box)
+        covered = face_coverage(graphics_mask(d / "on_face.png", d / "base.png", 1.0), box)
+        self.assertLessEqual(clean, FACE_COVER_THRESHOLD)
+        self.assertGreater(covered, FACE_COVER_THRESHOLD)
 
 
 @unittest.skipUnless(have_ffmpeg(), "ffmpeg missing")

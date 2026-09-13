@@ -9,7 +9,21 @@
 
 ## אוברליים (על הדובר, `overlay_scenes`)
 
-הדובר נשאר גלוי; האלמנט יושב בגובה החזה או בשליש העליון. אחד בכל רגע.
+הדובר נשאר גלוי; אחד בכל רגע. **איפה האלמנט יושב נקבע ב-`anchor` — ובחר אותו לפי מיקום
+הפנים** (המסגרות הירוקות בדפי הפריימים של `reel understand`). כשהפנים נמוכות בפריים (סלפי ביד,
+מצלמה על שולחן), ברירת המחדל של חלק מהסוגים נוחתת על הפה.
+
+| anchor | רצועה בקנבס (y) | מתי |
+|---|---|---|
+| `top-center` `top-left` `top-right` | 200-720 | ברירת המחדל הבטוחה — מעל הראש |
+| `left-rail` `right-rail` | 220-740 | צמוד לצד, כשהראש במרכז |
+| `above-captions` `above-captions-left` `above-captions-right` | 800-1300 | גובה החזה — רק כשהפנים גבוהות (מעל y≈750) |
+| `bottom-left` `bottom-center` `bottom-right` | 1040-1560 | נמוך, ליד הכתוביות |
+| `center` | 700-1220 | מסך מלא בלבד |
+
+ברירת מחדל `above-captions` (חזה): `arrow_scribble`, `before_after_flip`, `brand_chip`, `chat_bubble_duo`, `circle_scribble`, `comment_composer`, `counter_rollup`, `flow_arrow`, `lock_reveal`, `lower_third_premium`, `magnet_pull`, `medal_rank`, `notification_burst`, `progress_rail`, `receipt_card`, `retention_curve`, `row_badge_wave`, `timeline_scrub`, `twin_cards`, `typing_search`, `viewfinder_snap`, `word_stack`.
+כל השאר: `top-center`. `reel validate` מזהיר כשה-anchor נופל על פנים שזוהו, ובקרת האיכות
+מודדת כיסוי של אזור העיניים-פה בפריימים.
 
 ### תוכן וטקסט
 | type | שדות | מתי |
@@ -50,7 +64,7 @@
 | `notification_burst` | `app_name`, `titles` (3-5), `badge_count`? | "הטלפון מתפוצץ" |
 | `chat_bubble_duo` | `messages`: `[{text, side: in/out}]` 2-3 | שיחה שהדובר מתאר |
 | `typing_search` | `query` (≤30), `suggestions`? (עד 3) | רגע חיפוש |
-| `comment_composer` | `keyword`, `prompt_text`? | CTA "תגיבו X" — מדגים את הפעולה |
+| `comment_composer` | `keyword`, `prompt_text`?, `material`? (ברירת מחדל `solid-dark` — קריא גם על קיר בהיר) | CTA "תגיבו X" — מדגים את הפעולה |
 | `toggle_switch` | `from_state`, `to_state`, `variant`: switch/lock/panel | מעבר מצב |
 | `tap_interaction` | `button_label` (≤14), `done_label`?, `eyebrow`? | "בלחיצה אחת" |
 | `lock_reveal` | `revealed_text` (≤40), `locked_label`? | סוד שנפתח |

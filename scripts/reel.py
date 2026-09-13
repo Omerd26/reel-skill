@@ -93,6 +93,10 @@ def cmd_doctor(args) -> int:
     row("remotion/node_modules", nm, "" if nm else f"cd \"{REMOTION}\" && npm install")
     font = SKILL_ROOT / "assets" / "fonts" / "Heebo-ExtraBold.ttf"
     row("font", font.is_file(), str(font))
+    import tempfile
+    free_gb = shutil.disk_usage(tempfile.gettempdir()).free / 1e9
+    row("disk", free_gb >= 3 or None, f"{free_gb:.1f}GB פנויים" + ("" if free_gb >= 3 else
+        " — רנדר מלא צריך בערך 0.5GB ועוד 2.6MB לכל פריים (דקה ≈ 5GB)"))
     for name, ok, detail in rows:
         mark = "✅" if ok else ("➖" if ok is None else "❌")
         say(f"{mark} {name}  {detail}")
@@ -446,8 +450,21 @@ def render_full(p: Project, out: Path) -> int:
         return fail("Node לא מותקן — אין מסלול מלא. reel render --tier fast, או התקן Node 18+")
     if not (REMOTION / "node_modules" / "@remotion" / "renderer").is_dir():
         return fail(f"מנוע הגרפיקות לא מותקן: cd \"{REMOTION}\" && npm install")
+    # Remotion captures every frame as a JPEG and encodes alongside; a 42s reel ran a
+    # nearly full disk to ENOSPC mid-render (13.9.2026). Fail early with a clear message.
+    frames = int((read_json(p.props) or {}).get("duration_frames") or 0)
+    need = 0.5e9 + frames * 2.6e6          # measured: 1253 frames took ~3.1GB at peak
+    import tempfile
+    free = min(shutil.disk_usage(tempfile.gettempdir()).free, shutil.disk_usage(out.parent).free)
+    if free < need:
+        return fail(f"אין מספיק מקום פנוי בדיסק לרנדר: יש {free / 1e9:.1f}GB, צריך בערך {need / 1e9:.1f}GB. "
+                    "פנה מקום (למשל רנדרים ישנים ב-reels/*/output) ונסה שוב")
     tmp = out.with_name(out.stem + ".partial.mp4")
-    cmd = [node, str(REMOTION / "render_edit.mjs"), "--props", str(p.props), "--output", str(tmp)]
+    # Render copy: free text inside scenes gets no-break spaces between bonded words, so a
+    # component that wraps by itself never splits "מוצר א'" or "Claude Code" across lines.
+    render_props = p.work / "props.render.json"
+    write_json(render_props, protect_scene_text(read_json(p.props)))
+    cmd = [node, str(REMOTION / "render_edit.mjs"), "--props", str(render_props), "--output", str(tmp)]
     say("מרנדר (מסלול מלא)... זה לוקח כמה דקות")
     t0 = time.time()
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=str(p.root))
@@ -485,6 +502,35 @@ def render_full(p: Project, out: Path) -> int:
     tmp.replace(out)
     say(f"✅ רונדר ב-{time.time() - t0:.0f}s → {out}")
     return 0
+
+
+# Short label-like fields that components wrap on their own. Fields whose words a component
+# matches or animates one by one (highlight_sweep.text, word_stack, question) stay untouched.
+BOND_TEXT_KEYS = {"title", "label", "headline", "eyebrow", "primary", "secondary", "sub_text",
+                  "divider_label", "button_label", "done_label", "revealed_text", "locked_label",
+                  "cut_label", "footnote", "caption", "description", "app_name", "value_label"}
+
+
+def protect_scene_text(props: dict) -> dict:
+    """Copy of props with cap.protect_bonds applied to label-like scene text
+    (and to custom_layers text layers, which are rendered as one block)."""
+    import copy
+    out = copy.deepcopy(props)
+
+    def walk(node, in_layer=False):
+        if isinstance(node, dict):
+            layer = in_layer or node.get("kind") == "text"
+            for k, v in node.items():
+                if isinstance(v, str) and " " in v and (k in BOND_TEXT_KEYS or (layer and k == "text")):
+                    node[k] = cap.protect_bonds(v)
+                elif isinstance(v, (dict, list)):
+                    walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(out.get("editing_plan") or {})
+    return out
 
 
 def render_fast(p: Project, out: Path) -> int:

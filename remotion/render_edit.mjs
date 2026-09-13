@@ -89,11 +89,34 @@ function stage(absFile, bundleLocation, folder, prefix) {
   if (!fs.existsSync(dest) || fs.statSync(dest).size !== fs.statSync(absFile).size) {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.copyFileSync(absFile, dest);
+  } else {
+    const now = new Date();
+    fs.utimesSync(dest, now, now);          // reused → keep it out of the next prune
   }
   return { rel, hash };
 }
 
 const MEDIA_KEYS = new Set(["src", "image_url", "video_url", "icon_src"]);
+
+/** Staged copies accumulate (a new name for every new cut). Remove ones not touched for
+ *  6 hours — old enough that no render running in parallel can still be reading them. */
+function pruneStaged(bundleLocation, maxAgeHours = 6) {
+  const cutoff = Date.now() - maxAgeHours * 3600 * 1000;
+  let freed = 0;
+  for (const [folder, prefix] of [["videos", "src-"], ["staged-audio", "music-"], ["staged-media", "m-"]]) {
+    const dir = path.join(bundleLocation, "public", folder);
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.startsWith(prefix)) continue;
+      const full = path.join(dir, name);
+      try {
+        const st = fs.statSync(full);
+        if (Math.max(st.mtimeMs, st.atimeMs) < cutoff) { fs.unlinkSync(full); freed += st.size; }
+      } catch { /* in use or gone */ }
+    }
+  }
+  if (freed) console.error(`[render_edit] Pruned ${(freed / 1e6).toFixed(0)}MB of old staged files`);
+}
 
 /** Resolve + stage every local file the props reference. Mutates props. */
 function stageAssets(props, propsDir, bundleLocation) {
@@ -305,6 +328,7 @@ async function main() {
 
   let staged = [];
   if (!test) {
+    pruneStaged(bundleLocation);
     staged = stageAssets(props, propsDir, bundleLocation);
     for (const s of staged) console.error(`[render_edit] Staged ${s.field}: ${s.from} → ${s.to}`);
   }

@@ -22,6 +22,7 @@ reviews and edits the file; `check()` validates edits. Renderers never regroup.
 """
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 
 from . import FPS, SKILL_ROOT
@@ -46,6 +47,10 @@ LONG_PAUSE = 1.0      # a group never spans a pause this long
 TAIL_HOLD = 0.15
 MIN_SHOW = 0.40
 FRAME = 1 / FPS
+
+# Nouns in construct state that lean on the next word ("סוף הסרטון", "תחילת השבוע")
+CONSTRUCT_HEADS = {"סוף", "תחילת", "אמצע", "סיום", "מספר", "סוג", "צורת", "דרך", "זמן", "שם",
+                   "ראש", "בית", "חדר", "יום", "שנת", "חודש", "כמות", "רמת", "איכות", "מחיר"}
 
 COMPOUNDS = {
     ("בית", "ספר"), ("עורך", "דין"), ("תמונת", "פרופיל"), ("בן", "אדם"), ("בני", "אדם"),
@@ -146,8 +151,18 @@ def bond_cost(a: dict, b: dict) -> float:
         cost = INF                                    # "עשרת אלפים", "שלושה דברים"
     elif (len(ta) == 1 and ta in "ובלמהשכ") or (ca == "heb" and raw_a.endswith("-")):
         cost = INF                                    # stray prefix "ב" / "ב-"
+    elif _is_number_word(ta) and cb == "heb" and re.search(r"(ים|ות)$", tb):
+        cost = 8.0                                    # "שני מוצרים", "שלושה דברים"
+    elif tb in ("לי", "לך", "לו", "לה", "לנו", "לכם", "להן", "להם") and ca == "heb" and ta not in STOP:
+        cost = 6.0                                    # "תעשה לי", "תדרג לי"
+    elif re.fullmatch(r"[֐-׿]['׳]", tb) and ca == "heb":
+        cost = INF                                    # "מוצר ב'" — a letter label
+    elif ca == "heb" and cb == "num" and ta not in STOP and len(display_word(b["word"])) <= 5:
+        cost = 8.0                                    # name + version: "אסטרה 6", "גרסה 5.1"
     elif any((sa, tb) in COMPOUNDS for sa in strip_prefix(ta)):
         cost = 9.0                                    # "בתמונת פרופיל"
+    elif cb == "heb" and any(sa in CONSTRUCT_HEADS for sa in strip_prefix(ta)):
+        cost = 8.0                                    # "סוף הסרטון"
     elif ta in GLUE_FORWARD:
         cost = 6.0
     elif ta in ("אני", "אתה", "את", "אנחנו", "אתם", "הוא", "היא", "הם") and cb == "heb":
@@ -400,7 +415,7 @@ def check(doc: dict, base_words: list[dict] | None = None, duration: float | Non
             if float(b["start"]) - float(a["end"]) >= LONG_PAUSE:
                 warns.append(f"{gid}: יש בתוכה הפסקה של {float(b['start']) - float(a['end']):.1f}s — הכתובית תעמוד על מסך שקט")
         last = display_word(ws[-1]["word"])
-        if last in GLUE_FORWARD and len(ws) > 1:
+        if last in GLUE_FORWARD and len(ws) > 1 and ws[-1]["word"].strip()[-1:] not in ".?!":
             warns.append(f"{gid} «{' '.join(shown)}»: נגמרת במילת קישור '{last}'")
         bad_emph = [i for i in g.get("emph") or [] if not (isinstance(i, int) and 0 <= i < len(ws))]
         if bad_emph:
@@ -408,7 +423,7 @@ def check(doc: dict, base_words: list[dict] | None = None, duration: float | Non
         if len([i for i in g.get("emph") or []]) > 1:
             warns.append(f"{gid}: יותר ממילה מודגשת אחת — שתיים = אפס")
         txt = g.get("text")
-        if txt and txt.split() != shown:
+        if txt and txt.split() != " ".join(shown).split():
             warns.append(f"{gid}: text ('{txt}') שונה מהמילים — הרנדר מציג את words. "
                          "ערכת רק את text? הרץ reel captions --sync-text")
     for a, b in zip(groups, groups[1:]):

@@ -153,6 +153,21 @@ def graphics_mask(output_png: Path, base_png: Path, zoom: float):
     return dist > 40
 
 
+# Measured on a real take: 50px "23" drawn on the mouth covers ≈1.3% of the eyes→chin
+# region (text strokes fill only part of their box); an untouched frame measures ≈0.
+FACE_COVER_THRESHOLD = 0.01
+
+
+def face_coverage(mask, box) -> float:
+    """Share of the eyes→chin, central-70%-width part of a face box (full-res
+    [x, y, w, h]) that the half-res graphics mask marks as added graphics."""
+    fx, fy, fw, fh = box
+    y0, y1 = (fy + int(fh * 0.2)) // 2, (fy + int(fh * 0.95)) // 2
+    x0, x1 = (fx + int(fw * 0.15)) // 2, (fx + int(fw * 0.85)) // 2
+    sub = mask[y0:y1, x0:x1]
+    return float(sub.mean()) if sub.size else 0.0
+
+
 # ── sampling plan ────────────────────────────────────────────────────────────
 def sample_points(props: dict, duration: float) -> list[dict]:
     pts: list[dict] = []
@@ -395,10 +410,10 @@ def run(project: Project, output: Path, tier: str) -> dict:
             continue
         face_checked += 1
         p["faces"] = faces
-        for fx, fy, fw, fh in faces:
-            sub = mask[fy // 2:(fy + fh) // 2, fx // 2:(fx + fw) // 2]
-            if sub.size and sub.mean() > 0.2 and p["kind"] != "caption":
-                face_hits.append({"t": p["t"], "label": p["label"], "covered": round(float(sub.mean()), 2)})
+        if faces:
+            cov = face_coverage(mask, max(faces, key=lambda b: b[2] * b[3]))   # the speaker
+            if cov > FACE_COVER_THRESHOLD:
+                face_hits.append({"t": p["t"], "label": p["label"], "covered": round(cov, 3)})
     for f in base_frames.glob("*.png"):
         f.unlink()
     base_frames.rmdir()

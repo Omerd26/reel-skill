@@ -30,6 +30,15 @@ class HebrewTokens(unittest.TestCase):
         m = merge_number_tokens(W(["גרסה", "5", ".1"]))
         self.assertEqual([w["word"] for w in m], ["גרסה", "5.1"])
 
+    def test_real_take_number_tokens(self):
+        """Regression 13.9 (real footage): "5" + ".1." and "מ" + "-1"."""
+        m = merge_number_tokens(W(["פייבל", "5", ".1.", "תזכרו", "בוחר", "מ", "-1", "עד", "3"]))
+        self.assertEqual([w["word"] for w in m], ["פייבל", "5.1.", "תזכרו", "בוחר", "מ-1", "עד", "3"])
+        self.assertEqual(display_word("5.1."), "5.1")
+        vals = [n["value"] for n in spoken_numbers(m)]
+        self.assertIn(5.1, vals)
+        self.assertIn(1, vals)
+
     def test_display_word(self):
         self.assertEqual(display_word("לכולם,"), "לכולם")
         self.assertEqual(display_word("3."), "3")
@@ -65,6 +74,19 @@ class CaptionGroups(unittest.TestCase):
         self.assertTogether(g, "3 שניות")
         g = self.texts("הגעתי לעשרת אלפים צפיות תוך שבוע אחד בלבד".split())
         self.assertTogether(g, "לעשרת אלפים צפיות")
+
+    def test_real_take_phrases_stay_together(self):
+        """Regression 13.9 (real footage): name+version, letter labels, construct pairs."""
+        g = self.texts("נתתי להם אותו סרטון אסטרה 6 מול פייבל 5.1".split())
+        self.assertTogether(g, "אסטרה 6")
+        self.assertTogether(g, "פייבל 5.1")
+        g = self.texts("השוואה בין שני מוצרים מוצר א' מול מוצר ב' ותציג לי אותו פה".split())
+        self.assertTogether(g, "מוצר ב'")
+        g = self.texts("מבחן ראשון תעשה לי השוואה בין שני מוצרים מוצר א' מול מוצר ב'".split())
+        self.assertTogether(g, "תעשה לי")
+        self.assertTogether(g, "שני מוצרים")
+        g = self.texts("כי אני אחזור אליו לקראת סוף הסרטון לבדוק עוד משהו".split())
+        self.assertTogether(g, "סוף הסרטון")
 
     def test_prefix_letter_never_ends_a_group(self):
         for g in C.build(W("אני משתמש ב Notion כל יום בבוקר ובערב".split()), self.STYLES, 60):

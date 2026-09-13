@@ -46,6 +46,9 @@ export interface CommentComposerScene {
   prompt_text?: string;
   /** Tone — send button + caret accent. Default "brand". */
   tone?: Tone;
+  /** Field material. Default "solid-dark": the light "liquid" glass put white text on a
+   *  bright wall and the keyword was unreadable (real take, 13.9.2026). */
+  material?: "liquid" | "frosted" | "solid-dark";
   /** Anchor. Default "above-captions" — chest level, below the chin. */
   anchor?: OverlayAnchor;
   /** RTL. Default true (Hebrew keywords). */
@@ -140,7 +143,7 @@ export const CommentComposer: React.FC<Props> = ({ scene }) => {
         <div style={entrance}>
           <div
             style={{
-              ...glassStyle("liquid"),
+              ...glassStyle(scene.material ?? "solid-dark"),
               width: 660,
               borderRadius: RADIUS.pill,
               padding: "16px 18px",

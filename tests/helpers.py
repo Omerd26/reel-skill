@@ -1,7 +1,9 @@
 """Shared fixtures: synthetic clips built with ffmpeg lavfi, fake transcripts."""
 from __future__ import annotations
 
+import atexit
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -27,8 +29,25 @@ def have_remotion() -> bool:
     return bool(shutil.which("node")) and (ROOT / "remotion" / "node_modules" / "@remotion" / "renderer").is_dir()
 
 
+_TMP_DIRS: list[Path] = []
+
+
+def _cleanup() -> None:
+    if os.environ.get("REEL_KEEP_TEST_TMP"):
+        return
+    for d in _TMP_DIRS:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+atexit.register(_cleanup)
+
+
 def tmpdir() -> Path:
-    return Path(tempfile.mkdtemp(prefix="reel-test-"))
+    """A temp folder removed when the test run ends (REEL_KEEP_TEST_TMP=1 keeps it).
+    Render fixtures are ~200MB each — leaking them filled the disk (13.9.2026)."""
+    d = Path(tempfile.mkdtemp(prefix="reel-test-"))
+    _TMP_DIRS.append(d)
+    return d
 
 
 def run(cmd: list[str]) -> subprocess.CompletedProcess:

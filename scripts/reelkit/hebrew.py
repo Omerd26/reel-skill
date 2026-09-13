@@ -8,7 +8,11 @@ _NUM_FRAG = re.compile(r"^[-–—]?[\d][\d,.٫٬]*$|^[,.][\d]+$")
 
 
 def _continues_number(prev: str, nxt: str) -> bool:
-    """"-1" + ",000" and "5" + ".1" are one number; "3." then "5" is two."""
+    """"-1" + ",000" and "5" + ".1" (or ".1." at a sentence end) are one
+    number; "3." then "5" is two."""
+    nxt = nxt.rstrip("?!") if len(nxt) > 1 else nxt
+    if nxt.endswith(".") and len(nxt) > 2 and nxt[-2].isdigit():
+        nxt = nxt[:-1]                     # sentence period after ".1"
     if not prev or not nxt or not _NUM_FRAG.match(nxt):
         return False
     if nxt[0] in ",." and prev[-1].isdigit():
@@ -27,6 +31,12 @@ def merge_number_tokens(words: list) -> list:
     out, i, n = [], 0, len(words)
     while i < n:
         wt = (words[i].get("word") or "").strip()
+        nxt_t = (words[i + 1].get("word") or "").strip() if i + 1 < n else ""
+        if len(wt) == 1 and wt in "ובלמהשכ" and re.match(r"^[-–—]\d", nxt_t):
+            # "מ" + "-1" is the Hebrew form "מ-1", not a minus sign
+            out.append({**words[i], "word": wt + "-" + nxt_t[1:], "end": words[i + 1]["end"]})
+            i += 2
+            continue
         if wt == "%" and out and any(c.isdigit() for c in out[-1]["word"]) and not out[-1]["word"].endswith("%"):
             out[-1] = {**out[-1], "word": out[-1]["word"] + "%", "end": words[i]["end"]}
             i += 1
@@ -61,6 +71,8 @@ def display_word(token: str) -> str:
     """What a caption shows: sentence punctuation removed, meaning kept.
     "לכולם," → "לכולם", "3." → "3", "5.1" stays, "?" and "!" stay."""
     t = token.strip()
+    if re.fullmatch(r"[֐-׿]['׳]\.?,?", t):
+        return t.rstrip(".,")                 # letter label "א'" / "ב׳" keeps its geresh
     t = t.strip(EDGE_PUNCT)
     while t.endswith(".") and not re.search(r"\d\.\d+$", t):
         t = t[:-1]

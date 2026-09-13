@@ -100,6 +100,8 @@ class ExamplesValidate(unittest.TestCase):
         for v in V.HOOK_VARIANTS:
             self.assertIn(v, SKILL)
             self.assertIn(v, PLAYBOOK)
+        anchor_rows = SCENES.split("| anchor |")[1].split("\n\n")[0]
+        self.assertEqual(set(re.findall(r"`([a-z-]+)`", anchor_rows)), V.ANCHORS)
         enter_row = next(line for line in SCENES.splitlines() if line.startswith("| `enter`"))
         self.assertEqual(set(re.findall(r"`([a-z-]+)`", enter_row)) - {"enter"}, V.ENTERS)
 

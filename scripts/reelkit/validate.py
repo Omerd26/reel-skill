@@ -56,7 +56,7 @@ OVERLAY = {
     "notification_burst": ({"app_name", "titles"}, {"badge_count", "tone"}),
     "chat_bubble_duo": ({"messages"}, {"tone"}),
     "typing_search": ({"query"}, {"suggestions", "tone"}),
-    "comment_composer": ({"keyword"}, {"prompt_text"}),
+    "comment_composer": ({"keyword"}, {"prompt_text", "material", "tone"}),
     "toggle_switch": ({"to_state"}, {"from_state", "variant", "tone", "eyebrow", "blurred", "tease_label"}),
     "tap_interaction": ({"button_label"}, {"done_label", "eyebrow", "tone"}),
     "lock_reveal": ({"revealed_text"}, {"locked_label", "tone"}),
@@ -95,6 +95,22 @@ COMMON = {"id", "type", "start", "end", "transcript_phrase", "rationale", "ancho
           "title", "label", "suffix", "icon", "bars", "highlight_at"}
 JOURNEY_MIN = {"screen_journey": 8.0, "blueprint_map": 8.0, "twin_phones_funnel": 6.0,
                "analytics_dashboard": 4.0}
+
+# Overlay anchors (remotion/src/components/overlays/primitives.tsx resolveAnchor) and the
+# vertical band each one occupies on the 1080×1920 canvas (after the ×1.3 overlay scale).
+ANCHOR_BANDS = {
+    "top-left": (200, 720), "top-right": (200, 720), "top-center": (200, 720),
+    "left-rail": (220, 740), "right-rail": (220, 740), "center": (700, 1220),
+    "above-captions": (800, 1300), "above-captions-left": (800, 1300), "above-captions-right": (800, 1300),
+    "bottom-left": (1040, 1560), "bottom-center": (1040, 1560), "bottom-right": (1040, 1560),
+}
+ANCHORS = set(ANCHOR_BANDS)
+# Scenes whose component defaults to the chest-level anchor; every other overlay defaults to top-center.
+CHEST_DEFAULT = {"arrow_scribble", "before_after_flip", "brand_chip", "chat_bubble_duo", "circle_scribble",
+                 "comment_composer", "counter_rollup", "flow_arrow", "lock_reveal", "lower_third_premium",
+                 "magnet_pull", "medal_rank", "notification_burst", "progress_rail", "receipt_card",
+                 "retention_curve", "row_badge_wave", "timeline_scrub", "twin_cards", "typing_search",
+                 "viewfinder_snap", "word_stack"}
 
 LAYER_KINDS = {"text", "image", "video", "shape"}
 ENTERS = {"none", "fade", "pop", "slide-up", "slide-down", "slide-left", "slide-right", "draw", "type", "wipe"}
@@ -262,6 +278,8 @@ def check_scene(sc: dict, kind: str, schemas: dict, duration: float, words: list
               "אחרת המצלמה לא מספיקה לעבור והמסך נשאר ריק")
     if st == "custom_layers":
         check_layers(sc, sid, props_dir, r)
+    if "anchor" in sc and sc["anchor"] not in ANCHORS:
+        r.err(f"{kind} '{sid}': anchor '{sc['anchor']}' לא קיים — אפשרויות: {sorted(ANCHORS)}")
     for k, v in walk(sc):
         if isinstance(v, str) and EMOJI.search(v):
             r.err(f"{kind} '{sid}': אימוג'י בשדה {k} — אסור")
@@ -280,7 +298,7 @@ def check_scene(sc: dict, kind: str, schemas: dict, duration: float, words: list
             if not hits:
                 r.err(f"{kind} '{sid}': המספר '{raw}' לא נאמר בסרטון. מספר מההודעה של המשתמש? "
                       "סמן unspoken_numbers_ok:true וכתוב rationale")
-            elif not any(s - 12 <= h["start"] <= e + 3 for h in hits):
+            elif not any(s - 12 <= h["start"] <= e + 3 for h in hits) and not sc.get("requirement_ids"):
                 r.warn(f"{kind} '{sid}': '{raw}' נאמר ב-{hits[0]['start']}s — רחוק מהסצנה ({s}-{e}s). "
                        "ודא שזה הקשר נכון (למשל חזרה למספר שביקשו לזכור)")
 
@@ -464,7 +482,47 @@ def validate(props_path: str | Path, project_root: str | Path | None = None,
 
     if project_root:
         check_requirements(project_root, props, ov + br, r)
+        check_face_zones(project_root, props, ov, r)
     return r
+
+
+def check_face_zones(project_root: Path, props: dict, overlays: list[dict], r: Report) -> None:
+    """Warn when an overlay's anchor band would sit on the speaker's face, using the face
+    boxes `reel understand` detected (source timeline, mapped through the cut)."""
+    und = read_json(project_root / "work" / "understanding.json") or {}
+    frames = [f for f in und.get("frames") or [] if f.get("faces")]
+    if not frames:
+        return
+    from .timeline import src_to_base
+    keeps = [tuple(k) for k in props.get("keeps_frames") or []]
+    faces_at = []
+    for f in frames:
+        t = src_to_base(float(f["t"]), keeps) if keeps else float(f["t"])
+        if t is not None:
+            big = max(f["faces"], key=lambda b: b[2] * b[3])      # the speaker, not a stray detection
+            faces_at.append((t, big))
+    for sc in overlays:
+        st = sc.get("type")
+        if st == "custom_layers" or "start" not in sc:
+            continue
+        anchor = sc.get("anchor") or ("above-captions" if st in CHEST_DEFAULT else "top-center")
+        band = ANCHOR_BANDS.get(anchor)
+        if not band:
+            continue
+        s, e = float(sc["start"]), float(sc["end"])
+        near = [b for t, b in faces_at if s - 1.5 <= t <= e + 1.5] or [b for _, b in faces_at]
+        hits = []
+        for fx, fy, fw, fh in near:
+            inner_top, inner_bottom = fy + fh * 0.2, fy + fh * 0.9      # eyes → chin
+            overlap = min(band[1], inner_bottom) - max(band[0], inner_top)
+            if overlap > 0.25 * (inner_bottom - inner_top):
+                hits.append((fy, fy + fh))
+        if hits and len(hits) >= max(1, len(near) // 2):
+            fy0 = min(h[0] for h in hits)
+            fy1 = max(h[1] for h in hits)
+            implicit = "" if sc.get("anchor") else " (ברירת המחדל של הסוג)"
+            r.warn(f"overlay '{sc.get('id')}' ({st}): anchor '{anchor}'{implicit} נופל על הפנים "
+                   f"(פנים ב-y≈{fy0}-{fy1}). בחר anchor אחר, למשל top-center / top-right, או custom_layers עם מיקום")
 
 
 def check_requirements(project_root: Path, props: dict, scenes: list[dict], r: Report) -> None:
