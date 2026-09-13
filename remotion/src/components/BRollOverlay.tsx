@@ -1,4 +1,5 @@
 import React from "react";
+import { CustomLayers, type CustomLayersScene } from "./overlays/scenes/CustomLayers";
 import {
   AbsoluteFill,
   useCurrentFrame,
@@ -3777,6 +3778,12 @@ export const BRollOverlay: React.FC<{
   const durationSeconds = scene.end - scene.start;
   const durationFrames = Math.round(durationSeconds * fps);
   const items = scene.items || [];
+
+  // Data-described full-screen scene (docs/SCENES.md → custom_layers)
+  if ((scene as { type?: string }).type === "custom_layers") {
+    const custom = scene as unknown as CustomLayersScene;
+    return <CustomLayers scene={{ ...custom, background: custom.background ?? "#0B0B0F" }} />;
+  }
 
   switch (scene.type) {
     case "user_image":

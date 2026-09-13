@@ -876,7 +876,7 @@ export const RemotionRoot: React.FC = () => {
           instagram_handle: "@omerd",
         }}
         calculateMetadata={async ({ props }: { props: EditedReelProps }) => ({
-          durationInFrames: calculateEditDuration(props.duration_seconds, props.fps),
+          durationInFrames: calculateEditDuration(props.duration_seconds, props.fps, props.duration_frames),
           fps: props.fps,
           width: 1080,
           height: 1920,

@@ -1,41 +1,38 @@
 /**
  * render_edit.mjs – Render an edited talking-head video using Remotion.
  *
- * Called from Python video_editor.py via subprocess.
- *
- * Usage:
- *   node render_edit.mjs --props <json_file> --output <output.mp4>
+ * Usage (any working directory — nothing here depends on cwd):
+ *   node render_edit.mjs --props <props.json> --output <output.mp4>
  *   node render_edit.mjs --test  (test render with placeholder props)
  *
- * Props JSON schema (matches EditedReelProps):
- * {
- *   video_path:       "videos/abc_input.mp4",  // relative to public/
- *   words:            [{word, start, end}, ...],
- *   duration_seconds: 45.2,
- *   editing_plan: {
- *     callouts:     [{start, end, text, position}, ...],
- *     lower_third:  {title, subtitle, start, duration},
- *     zoom_moments: [{start, duration, factor}, ...]
- *   },
- *   captions_style: "tiktok" | "classic" | "highlight" | "white_card" | "none",  // "none" = no burned captions
- *   fps: 30,
- *   brand_color: "#E0701E",
- *   instagram_handle: "@omerd"
- * }
+ * Paths inside props (video_path, music.src, scene src/image_url/video_url):
+ *   • absolute path                         → used as is
+ *   • relative path that exists next to the props file → resolved against it
+ *   • relative path under remotion/public   → legacy (e.g. "music/calm/x.mp3")
+ * Every LOCAL file is staged into the bundle under a CONTENT-HASHED name
+ * (videos/src-<sha1>.mp4). Same name + new content = new URL, so a replaced
+ * file can never be served from a previous render (the old sync copied a file
+ * only "if it didn't exist yet" — a re-cut base.mp4 rendered the OLD video).
+ * A referenced file that does not exist is a hard error, not a warning.
  *
- * Output (last line of stdout): { success, output, duration_seconds }
+ * Duration: duration_frames if given, else round(duration_seconds * fps).
+ * No hidden buffer — the output has exactly that many frames.
+ *
+ * Output (last line of stdout): { success, output, frames, duration_seconds, staged }
  */
 
 import { bundle }                        from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import path                              from "path";
 import fs                                from "fs";
+import crypto                            from "crypto";
 import { fileURLToPath }                 from "url";
-import { execSync }                      from "child_process";
+import { execSync, execFileSync }        from "child_process";
 import os                                from "os";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
+const PUBLIC_DIR = path.join(__dirname, "public");
 
 // ── CLI arg parsing ───────────────────────────────────────────────────────────
 
@@ -50,33 +47,82 @@ function parseArgs() {
   return parsed;
 }
 
-// ── Video file preparation ────────────────────────────────────────────────────
+// ── Local asset resolution + content-hashed staging ─────────────────────────
 
-function verifyVideoExists(props) {
-  /**
-   * Make sure the video file exists in public/.
-   * If video_path is absolute, copy it to public/videos/.
-   * Returns updated video_path (relative).
-   */
-  const videosDir = path.join(__dirname, "public", "videos");
-  fs.mkdirSync(videosDir, { recursive: true });
+class AssetError extends Error {}
 
-  const relPath = props.video_path;
+function isRemote(p) {
+  return typeof p === "string" && /^(https?:|data:)/.test(p);
+}
 
-  // If it looks like an absolute path, copy it in
-  if (path.isAbsolute(relPath)) {
-    const filename = path.basename(relPath);
-    const dest     = path.join(videosDir, filename);
-    if (!fs.existsSync(dest)) fs.copyFileSync(relPath, dest);
-    return `videos/${filename}`;
+/** Absolute path of a local asset referenced from props, or throws. */
+export function resolveLocal(ref, propsDir, what) {
+  if (!ref || typeof ref !== "string") throw new AssetError(`${what}: empty path`);
+  const expanded = ref.startsWith("~") ? path.join(os.homedir(), ref.slice(1)) : ref;
+  const candidates = path.isAbsolute(expanded)
+    ? [expanded]
+    : [path.join(propsDir, expanded), path.join(PUBLIC_DIR, expanded)];
+  const hit = candidates.find((c) => fs.existsSync(c) && fs.statSync(c).isFile());
+  if (!hit) throw new AssetError(`${what}: file not found: ${ref} (looked in ${candidates.join(" , ")})`);
+  return hit;
+}
+
+function sha1File(file) {
+  const h = crypto.createHash("sha1");
+  const fd = fs.openSync(file, "r");
+  const buf = Buffer.alloc(1 << 20);
+  try {
+    let n;
+    while ((n = fs.readSync(fd, buf, 0, buf.length, null)) > 0) h.update(buf.subarray(0, n));
+  } finally {
+    fs.closeSync(fd);
+  }
+  return h.digest("hex").slice(0, 16);
+}
+
+/** Copy into <bundle>/public/<folder>/<prefix>-<hash><ext>; returns the staticFile path. */
+function stage(absFile, bundleLocation, folder, prefix) {
+  const hash = sha1File(absFile);
+  const ext = path.extname(absFile).toLowerCase() || ".bin";
+  const rel = `${folder}/${prefix}-${hash}${ext}`;
+  const dest = path.join(bundleLocation, "public", rel);
+  if (!fs.existsSync(dest) || fs.statSync(dest).size !== fs.statSync(absFile).size) {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(absFile, dest);
+  }
+  return { rel, hash };
+}
+
+const MEDIA_KEYS = new Set(["src", "image_url", "video_url", "icon_src"]);
+
+/** Resolve + stage every local file the props reference. Mutates props. */
+function stageAssets(props, propsDir, bundleLocation) {
+  const staged = [];
+  const v = stage(resolveLocal(props.video_path, propsDir, "video_path"), bundleLocation, "videos", "src");
+  staged.push({ field: "video_path", from: props.video_path, to: v.rel });
+  props.video_path = v.rel;
+
+  if (props.music && props.music.src && !isRemote(props.music.src)) {
+    const m = stage(resolveLocal(props.music.src, propsDir, "music.src"), bundleLocation, "staged-audio", "music");
+    staged.push({ field: "music.src", from: props.music.src, to: m.rel });
+    props.music.src = m.rel;
   }
 
-  // Check relative path exists
-  const absPath = path.join(__dirname, "public", relPath);
-  if (!fs.existsSync(absPath)) {
-    console.error(`[render_edit] Warning: video not found at ${absPath}`);
-  }
-  return relPath;
+  const walk = (node, where) => {
+    if (Array.isArray(node)) { node.forEach((n, i) => walk(n, `${where}[${i}]`)); return; }
+    if (!node || typeof node !== "object") return;
+    for (const [k, val] of Object.entries(node)) {
+      if (MEDIA_KEYS.has(k) && typeof val === "string" && val && !isRemote(val)) {
+        const s = stage(resolveLocal(val, propsDir, `${where}.${k}`), bundleLocation, "staged-media", "m");
+        staged.push({ field: `${where}.${k}`, from: val, to: s.rel });
+        node[k] = s.rel;
+      } else if (val && typeof val === "object") {
+        walk(val, `${where}.${k}`);
+      }
+    }
+  };
+  walk(props.editing_plan || {}, "editing_plan");
+  return staged;
 }
 
 // ── Test props ────────────────────────────────────────────────────────────────
@@ -95,21 +141,8 @@ function getTestProps() {
       { word: "חשוב",   start: 3.1, end: 3.5 },
     ],
     duration_seconds: 6,
-    editing_plan: {
-      callouts: [
-        { start: 2.5, end: 5.0, text: "💡 טיפ חשוב!", position: "top" },
-      ],
-      lower_third: {
-        title:    "@omerd",
-        subtitle: "מומחה שיווק",
-        start:    0,
-        duration: 5,
-      },
-      zoom_moments: [
-        { start: 3.0, duration: 1.5, factor: 1.06 },
-      ],
-    },
-    captions_style:   "tiktok",
+    editing_plan: {},
+    captions_style:   "highlight",
     fps:              30,
     brand_color:      "#E0701E",
     instagram_handle: "@omerd",
@@ -117,53 +150,25 @@ function getTestProps() {
 }
 
 function createPlaceholderVideo() {
-  /**
-   * Create a short placeholder MP4 for test mode.
-   * Uses Remotion's bundled FFmpeg with a looped PNG frame (the -f lavfi
-   * color filter is disabled in the Remotion build, so we generate a PNG
-   * via Python first and loop it into H.264 video).
-   */
-  const videosDir  = path.join(__dirname, "public", "videos");
+  const videosDir  = path.join(PUBLIC_DIR, "videos");
   fs.mkdirSync(videosDir, { recursive: true });
   const outputPath = path.join(videosDir, "placeholder_video.mp4");
-
   if (fs.existsSync(outputPath)) return;
-
-  // Locate Remotion's bundled ffmpeg (darwin-arm64 or darwin-x64 or linux-x64)
-  const compositorDirs = fs.readdirSync(
-    path.join(__dirname, "node_modules", "@remotion")
-  ).filter(d => d.startsWith("compositor-"));
-
+  const compositorDirs = fs.readdirSync(path.join(__dirname, "node_modules", "@remotion"))
+    .filter(d => d.startsWith("compositor-"));
   const ffmpegBin = compositorDirs
     .map(d => path.join(__dirname, "node_modules", "@remotion", d, "ffmpeg"))
     .find(p => fs.existsSync(p));
-
   if (!ffmpegBin) {
     console.error("[render_edit] Could not find Remotion ffmpeg binary");
     return;
   }
-
   const libDir = path.dirname(ffmpegBin);
-
   try {
-    // 1. Create a 1080×1920 dark PNG via Python
     const pngPath = path.join(os.tmpdir(), "placeholder_frame.png");
-    execSync(
-      `python3 -c "
-from PIL import Image
-img = Image.new('RGB', (1080, 1920), (20, 20, 20))
-img.save('${pngPath}')
-"`,
-      { stdio: "pipe" }
-    );
-
-    // 2. Loop the PNG into a 6-second H.264 MP4
+    execSync(`python3 -c "from PIL import Image; Image.new('RGB', (1080, 1920), (20, 20, 20)).save('${pngPath}')"`, { stdio: "pipe" });
     const env = { ...process.env, DYLD_LIBRARY_PATH: libDir, LD_LIBRARY_PATH: libDir };
-    execSync(
-      `"${ffmpegBin}" -y -loop 1 -framerate 30 -i "${pngPath}" -t 6 -c:v libx264 -pix_fmt yuv420p "${outputPath}"`,
-      { stdio: "pipe", env }
-    );
-    console.error("[render_edit] Placeholder video created:", outputPath);
+    execSync(`"${ffmpegBin}" -y -loop 1 -framerate 30 -i "${pngPath}" -t 6 -c:v libx264 -g 30 -bf 0 -pix_fmt yuv420p "${outputPath}"`, { stdio: "pipe", env });
   } catch (e) {
     console.error("[render_edit] Could not create placeholder video:", e.message);
   }
@@ -171,73 +176,102 @@ img.save('${pngPath}')
 
 // ── Bundle cache ──────────────────────────────────────────────────────────────
 // webpack compilation takes 15-30s; cache the result and reuse across renders.
+// Key = every src file's path+size+mtime, so an edited, added, deleted OR
+// reverted (older-mtime) file all produce a new bundle.
 
 const BUNDLE_CACHE_FILE = path.join(__dirname, ".bundle-cache.json");
 
-function getMaxMtime(dir) {
-  let max = 0;
+function srcSignature(dir) {
+  const h = crypto.createHash("sha1");
   const walk = (d) => {
-    try {
-      for (const name of fs.readdirSync(d)) {
-        const full = path.join(d, name);
-        try {
-          const stat = fs.statSync(full);
-          if (stat.isDirectory()) walk(full);
-          else if (stat.mtimeMs > max) max = stat.mtimeMs;
-        } catch { /* skip unreadable */ }
-      }
-    } catch { /* skip unreadable dir */ }
+    for (const name of fs.readdirSync(d).sort()) {
+      const full = path.join(d, name);
+      const stat = fs.statSync(full);
+      if (stat.isDirectory()) walk(full);
+      else h.update(`${path.relative(dir, full)}|${stat.size}|${Math.floor(stat.mtimeMs)}\n`);
+    }
   };
   walk(dir);
-  return max;
+  return h.digest("hex");
 }
 
 async function getBundle() {
-  const srcDir    = path.join(__dirname, "src");
-  const srcMtime  = getMaxMtime(srcDir);
-
-  // Try cached bundle
+  const srcDir = path.join(__dirname, "src");
+  const signature = srcSignature(srcDir);
   if (fs.existsSync(BUNDLE_CACHE_FILE)) {
     try {
       const cache = JSON.parse(fs.readFileSync(BUNDLE_CACHE_FILE, "utf8"));
-      if (
-        cache.location &&
-        fs.existsSync(path.join(cache.location, "index.html")) &&
-        srcMtime <= cache.srcMtime
-      ) {
+      if (cache.location && cache.signature === signature &&
+          fs.existsSync(path.join(cache.location, "index.html"))) {
         console.error("[render_edit] ✓ Using cached bundle (webpack skipped)");
         return cache.location;
       }
     } catch { /* cache invalid */ }
   }
-
-  // Fresh bundle
   console.error("[render_edit] Building bundle (first time or source changed)...");
   const location = await bundle({
     entryPoint:      path.join(srcDir, "index.ts"),
-    publicDir:       path.join(__dirname, "public"),
+    publicDir:       PUBLIC_DIR,
     webpackOverride: (config) => config,
   });
-
   try {
-    fs.writeFileSync(BUNDLE_CACHE_FILE, JSON.stringify({ location, srcMtime }));
-    console.error(`[render_edit] Bundle saved to cache`);
-  } catch { /* non-fatal */ }
-
+    fs.writeFileSync(BUNDLE_CACHE_FILE, JSON.stringify({ location, signature }));
+  } catch { /* non-fatal (read-only plugin dir) */ }
   return location;
+}
+
+/** Mirror a public/ subfolder into the bundle, replacing changed files. */
+function syncPublicDir(bundleLocation, folder) {
+  const srcDir = path.join(PUBLIC_DIR, folder);
+  if (!fs.existsSync(srcDir)) return;
+  const walk = (rel) => {
+    const from = path.join(srcDir, rel);
+    for (const name of fs.readdirSync(from)) {
+      const r = path.join(rel, name);
+      const s = path.join(srcDir, r);
+      const d = path.join(bundleLocation, "public", folder, r);
+      const st = fs.statSync(s);
+      if (st.isDirectory()) { walk(r); continue; }
+      if (!fs.existsSync(d) || fs.statSync(d).size !== st.size || fs.statSync(d).mtimeMs < st.mtimeMs) {
+        fs.mkdirSync(path.dirname(d), { recursive: true });
+        fs.copyFileSync(s, d);
+      }
+    }
+  };
+  walk("");
+}
+
+function probeFrames(file) {
+  const compositor = fs.readdirSync(path.join(__dirname, "node_modules", "@remotion"))
+    .filter((d) => d.startsWith("compositor-"))
+    .map((d) => path.join(__dirname, "node_modules", "@remotion", d, "ffprobe"))
+    .find((p) => fs.existsSync(p));
+  const candidates = ["ffprobe", path.join(os.homedir(), ".local/bin/ffprobe"), compositor].filter(Boolean);
+  for (const bin of candidates) {
+    try {
+      const env = compositor && bin === compositor
+        ? { ...process.env, DYLD_LIBRARY_PATH: path.dirname(bin), LD_LIBRARY_PATH: path.dirname(bin) }
+        : process.env;
+      const out = execFileSync(bin, ["-v", "error", "-count_packets", "-select_streams", "v:0",
+        "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", file], { env, stdio: ["ignore", "pipe", "ignore"] });
+      const n = parseInt(String(out).trim(), 10);
+      if (Number.isFinite(n)) return n;
+    } catch { /* try next */ }
+  }
+  return null;
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
   const { propsFile, outputPath, test } = parseArgs();
-
   let props;
   let output;
+  let propsDir = process.cwd();
 
   if (test) {
-    output = outputPath || path.join(__dirname, "..", "output", "test_edited.mp4");
-    await createPlaceholderVideo();
+    output = path.resolve(outputPath || path.join(__dirname, "..", "output", "test_edited.mp4"));
+    createPlaceholderVideo();
     props = getTestProps();
     console.error("[render_edit] Running in test mode...");
   } else {
@@ -245,73 +279,36 @@ async function main() {
       console.error("Usage: node render_edit.mjs --props <json> --output <mp4>");
       process.exit(1);
     }
-    output = outputPath;
-    const rawJson = fs.readFileSync(propsFile, "utf-8");
-    props = JSON.parse(rawJson);
-
-    // Ensure video is accessible
-    props.video_path = verifyVideoExists(props);
+    const propsAbs = path.resolve(propsFile);
+    output = path.resolve(outputPath);
+    propsDir = path.dirname(propsAbs);
+    props = JSON.parse(fs.readFileSync(propsAbs, "utf-8"));
   }
 
-  const totalSeconds = props.duration_seconds || 10;
-  const fps          = props.fps || 30;
-  const totalFrames  = Math.ceil(totalSeconds * fps);
+  const fps         = props.fps || 30;
+  const totalFrames = Number.isInteger(props.duration_frames) && props.duration_frames > 0
+    ? props.duration_frames
+    : Math.max(1, Math.round((props.duration_seconds || 10) * fps));
+  props.duration_frames = totalFrames;
 
-  console.error(`[render_edit] Duration: ${totalSeconds}s (${totalFrames} frames)`);
-  console.error(`[render_edit] Captions: ${props.captions_style}`);
-  console.error(`[render_edit] Callouts: ${props.editing_plan?.callouts?.length || 0}`);
+  console.error(`[render_edit] Duration: ${totalFrames} frames (${(totalFrames / fps).toFixed(3)}s)`);
   console.error(`[render_edit] Output:   ${output}`);
-
   fs.mkdirSync(path.dirname(output), { recursive: true });
 
-  // Bundle (cached after first run)
   const bundleLocation = await getBundle();
 
-  // Remotion bundles the public/ dir at webpack time, so new files added
-  // after the bundle was built are NOT served by the bundle's HTTP server.
-  // Fix: always sync videos and icons into the bundle's public/ dir.
+  // Remotion serves the bundle's own copy of public/, baked at webpack time,
+  // so assets must be put INTO the bundle before rendering.
+  syncPublicDir(bundleLocation, "music");
+  syncPublicDir(bundleLocation, "icons");
+  syncPublicDir(bundleLocation, "sfx");
+
+  let staged = [];
   if (!test) {
-    const srcVideo  = path.join(__dirname, "public", props.video_path);
-    const destVideo = path.join(bundleLocation, "public", props.video_path);
-    if (fs.existsSync(srcVideo) && !fs.existsSync(destVideo)) {
-      fs.mkdirSync(path.dirname(destVideo), { recursive: true });
-      fs.copyFileSync(srcVideo, destVideo);
-      console.error(`[render_edit] Synced video into bundle: ${path.basename(props.video_path)}`);
-    }
-
-    // Sync icon PNGs into the bundle
-    const iconsDir = path.join(__dirname, "public", "icons");
-    const destIconsDir = path.join(bundleLocation, "public", "icons");
-    if (fs.existsSync(iconsDir)) {
-      fs.mkdirSync(destIconsDir, { recursive: true });
-      for (const f of fs.readdirSync(iconsDir)) {
-        const src = path.join(iconsDir, f);
-        const dst = path.join(destIconsDir, f);
-        if (!fs.existsSync(dst)) {
-          fs.copyFileSync(src, dst);
-        }
-      }
-      console.error(`[render_edit] Synced icons into bundle`);
-    }
-
-    // Sync audio asset dirs (music beds + SFX) into the bundle. Both are
-    // staticFile('music/<mood>/…') / staticFile('sfx/<cat>/…') paths added
-    // after the bundle was built, so — exactly like video/icons — they must be
-    // copied into the bundle's public/ dir or they 404 at render time (Remotion
-    // bakes public/ at webpack time). Recursive because these have subfolders;
-    // overwrite (default force) so a swapped/re-curated track refreshes.
-    for (const audioDir of ["music", "sfx"]) {
-      const srcDir  = path.join(__dirname, "public", audioDir);
-      const destDir = path.join(bundleLocation, "public", audioDir);
-      if (fs.existsSync(srcDir)) {
-        fs.cpSync(srcDir, destDir, { recursive: true });
-        console.error(`[render_edit] Synced ${audioDir} into bundle`);
-      }
-    }
+    staged = stageAssets(props, propsDir, bundleLocation);
+    for (const s of staged) console.error(`[render_edit] Staged ${s.field}: ${s.from} → ${s.to}`);
   }
 
-  // Select composition
-  console.error("[render_edit] Selecting composition...");
   const chromeFlags = {
     gl: process.env.REMOTION_GL || "swiftshader",
     enableMultiProcessOnLinux: true,
@@ -321,10 +318,12 @@ async function main() {
     id:         "EditedReel",
     inputProps: props,
     chromiumOptions: chromeFlags,
-    timeoutInMilliseconds: 120000,  // 2 min for browser setup in Docker
+    timeoutInMilliseconds: 120000,
   });
+  if (composition.durationInFrames !== totalFrames) {
+    throw new Error(`composition has ${composition.durationInFrames} frames, expected ${totalFrames}`);
+  }
 
-  // Render — use more CPU cores + lighter settings for speed
   console.error("[render_edit] Rendering...");
   await renderMedia({
     composition,
@@ -333,56 +332,33 @@ async function main() {
     outputLocation: output,
     inputProps:     props,
     imageFormat:    "jpeg",
-    // COLOR PIPELINE (2026-08-05). Without this every export came out
-    // `yuvj420p / color_range=pc / bt470bg / transfer=unknown`: FULL-range
-    // pixels (inherited from the JPEG frame capture) carrying PAL primaries
-    // and no transfer tag, while the customer's own iPhone source is the
-    // correct `yuv420p / tv / bt709`. Any player or transcoder that assumes
-    // limited range — Instagram's included — then shifts the picture
-    // (crushed blacks or washed-out contrast) and the colours drift off
-    // bt709. "bt709" makes Remotion tag primaries/transfer/matrix properly
-    // and emit limited-range yuv420p, i.e. what every phone actually shoots.
+    // bt709 tags + limited range, i.e. what phones shoot and Instagram expects
+    // (without it exports came out full-range with PAL primaries → shifted colours).
     colorSpace:     "bt709",
-    // Quality-first export. These two were dropped to 75/23 "for speed", but
-    // that's exactly what made the saved MP4 look softer than the browser
-    // preview: the preview streams the ORIGINAL source file, while the export
-    // captures every composited frame (footage + captions) as JPEG then
-    // re-encodes with H264. jpegQuality controls that intermediate capture —
-    // at 75 it softens the talking-head footage before encoding even starts.
-    // jpeg 100 = near-lossless capture; crf 18 = visually-lossless H264. Both
-    // env-overridable so we can trade quality↔speed without a redeploy.
+    // jpeg 100 capture + crf 18: the export must not look softer than the source.
     jpegQuality:    process.env.RENDER_JPEG_QUALITY ? parseInt(process.env.RENDER_JPEG_QUALITY) : 100,
     crf:            process.env.RENDER_CRF ? parseInt(process.env.RENDER_CRF) : 18,
-    // Left at the default "medium" preset — "slow" gains only marginal
-    // quality-per-bit but ~+60% encode CPU on this 4-core box, risking
-    // render timeouts. Bump via env only if a box has spare cores.
     x264Preset:     process.env.RENDER_X264_PRESET || "medium",
-    // Concurrency=2 on a 4-core box. We tried 4, but each worker has to decode
-    // the source video via OffthreadVideo's bundled ffmpeg, and 4 concurrent
-    // decodes saturated the CPU enough that some frames timed out and reused
-    // the previous decoded frame — that's what caused the user-visible "source
-    // freezes for 2s then catches up" stutter. Halving concurrency doubles
-    // per-worker headroom for decoding at only a ~30% wall-clock cost.
+    // 2 workers: more concurrent OffthreadVideo decodes starved the CPU and
+    // frames timed out into repeats (visible stutter).
     concurrency:    process.env.RENDER_CONCURRENCY ? parseInt(process.env.RENDER_CONCURRENCY) : 2,
-    timeoutInMilliseconds: 90000,  // 90s per frame (video loading can be slow in Docker)
+    timeoutInMilliseconds: 90000,
     chromiumOptions: chromeFlags,
     onProgress: ({ progress }) => {
       const pct    = Math.round(progress * 100);
       const filled = Math.floor(pct / 10);
-      const bar    = "▓".repeat(filled) + "░".repeat(10 - filled);
-      console.error(`[render_edit] Progress: ${bar} ${pct}%`);
+      console.error(`[render_edit] Progress: ${"▓".repeat(filled)}${"░".repeat(10 - filled)} ${pct}%`);
     },
   });
 
-  // Bundle is kept (cached) — NOT deleted after render
-
-  const result = {
-    success:          true,
-    output:           path.resolve(output),
-    duration_seconds: totalSeconds,
-    frames:           totalFrames,
-  };
-  console.log(JSON.stringify(result));
+  const measured = probeFrames(output);
+  if (measured !== null && measured !== totalFrames) {
+    throw new Error(`output has ${measured} frames, expected ${totalFrames}`);
+  }
+  console.log(JSON.stringify({
+    success: true, output, frames: measured ?? totalFrames,
+    duration_seconds: totalFrames / fps, staged,
+  }));
 }
 
 main().catch((err) => {

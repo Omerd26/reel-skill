@@ -39,6 +39,23 @@ export interface HookTextProps {
   durationInFrames: number;
 }
 
+// Words that must share a line — mirror of scripts/reelkit/captions.py
+// protect_bonds (numbers + what they count, English runs, prefixes and
+// prepositions). A no-break space keeps "לעשרת אלפים" off two lines.
+const NUMBER_WORDS = /^[ובלמהש]{0,2}(אחד|אחת|שתיים|שניים|שתי|שני|שלוש|שלושה|שלושת|ארבע|ארבעה|ארבעת|חמש|חמישה|חמשת|שש|שישה|ששת|שבע|שבעה|שבעת|שמונה|שמונת|תשע|תשעה|תשעת|עשר|עשרה|עשרת|עשרים|שלושים|ארבעים|חמישים|שישים|שבעים|שמונים|תשעים|מאה|מאתיים|מאות|אלף|אלפים|אלפיים|מיליון|מיליארד)$/;
+const GLUE = new Set(["עם", "על", "של", "אל", "את", "בלי", "לפי", "כדי", "בין", "מול", "כמו", "זה", "יש", "אין", "הכי", "יותר", "פחות", "כל", "רק", "גם", "לא", "ה", "ו", "ב", "ל", "מ", "ש"]);
+export function protectBonds(text: string): string {
+  const toks = text.split(/\s+/).filter(Boolean);
+  const latin = (w: string) => /^[A-Za-z]/.test(w);
+  const digit = (w: string) => /\d/.test(w) && !/[\u0590-\u05FF]/.test(w);
+  return toks.reduce((acc, t, i) => {
+    if (i === 0) return t;
+    const a = toks[i - 1];
+    const bond = GLUE.has(a) || NUMBER_WORDS.test(a) || digit(a) || (latin(a) && (latin(t) || digit(t)));
+    return acc + (bond ? "\u00a0" : " ") + t;
+  }, "");
+}
+
 export const HookText: React.FC<HookTextProps> = ({
   hook,
   highlight = "",
@@ -73,14 +90,16 @@ export const HookText: React.FC<HookTextProps> = ({
 
   // Colour the ONE highlight keyword (bold-stroke / minimal-clean only —
   // highlight-box puts the whole line on a coloured pill).
+  const shown = protectBonds(hook);
+  const hl = highlight ? protectBonds(highlight) : "";
   const body: React.ReactNode =
-    highlight && variant !== "highlight-box" && hook.includes(highlight)
-      ? hook.split(highlight).flatMap((part, i, arr) =>
+    hl && variant !== "highlight-box" && shown.includes(hl)
+      ? shown.split(hl).flatMap((part, i, arr) =>
           i < arr.length - 1
-            ? [part, <span key={i} style={{ color: brandColor }}>{highlight}</span>]
+            ? [part, <span key={i} style={{ color: brandColor }}>{hl}</span>]
             : [part]
         )
-      : hook;
+      : shown;
 
   const base: React.CSSProperties = {
     fontFamily: "'Heebo', sans-serif",

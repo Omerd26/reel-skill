@@ -9,7 +9,7 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
-import { Captions, WordTimestamp } from "../components/Captions";
+import { Captions, WordTimestamp, type CaptionGroup } from "../components/Captions";
 import { EffectLayer, AnyEffect } from "../components/EffectLayer";
 import { BRollOverlay, BRollSceneData } from "../components/BRollOverlay";
 import { OverlayLayer } from "../components/overlays/OverlayLayer";
@@ -117,7 +117,18 @@ export interface EditedReelProps {
   /** Written hook shown in the first ~3s (top-third, big Heebo Black). Null/
    *  absent = no hook. `highlight` is one word inside `text` to accent in the
    *  brand colour; `variant` picks the visual treatment. */
-  hook?:             { text: string; highlight?: string; variant?: HookVariant } | null;
+  hook?:             {
+    text: string; highlight?: string; variant?: HookVariant;
+    /** Legacy alias of `variant` (older docs said "style"). */
+    style?: HookVariant;
+    /** Seconds on the edited timeline. Default 0 → 3. */
+    start?: number; end?: number;
+  } | null;
+  /** Exact output length in frames (preferred over duration_seconds). */
+  duration_frames?:  number;
+  /** Caption groups planned outside the renderer (work/captions.json). When
+   *  present the renderer shows exactly these groups and never regroups. */
+  caption_groups?:   CaptionGroup[];
   /** Burn a tasteful DrEdit watermark into this render (guest / free tier).
    *  RENDER-TIME only — a clean re-render of the same cached plan passes
    *  `false` to strip it. Default false = clean owner / paid render. */
@@ -324,7 +335,10 @@ export const EditedReel: React.FC<EditedReelProps> = ({
   music = null,
   hook = null,
   watermark = false,
+  caption_groups,
 }) => {
+  const { durationInFrames } = useVideoConfig();
+  const duckVolume = music?.src ? buildDuckVolume(words, fps, music.volume ?? 0.11) : null;
   const effects       = editing_plan?.effects || [];
   const brollScenes   = (editing_plan?.broll_scenes || []) as BRollSceneData[];
   const overlayScenes = (editing_plan?.overlay_scenes || []) as AnyOverlayScene[];
@@ -356,7 +370,12 @@ export const EditedReel: React.FC<EditedReelProps> = ({
       {music?.src && (
         <Audio
           src={staticFile(music.src)}
-          volume={buildDuckVolume(words, fps, music.volume ?? 0.11)}
+          volume={(f: number) => {
+            // intentional ending: the bed fades out over the last 0.6s instead of being cut
+            const tailFade = interpolate(f, [durationInFrames - Math.round(fps * 0.6), durationInFrames - 1], [1, 0],
+              { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+            return (duckVolume ? duckVolume(f) : 0) * tailFade;
+          }}
           loop
         />
       )}
@@ -451,6 +470,7 @@ export const EditedReel: React.FC<EditedReelProps> = ({
       {captions_style !== "none" && (
         <Captions
           words={words}
+          groups={caption_groups}
           style={captions_style}
           brandColor={brand_color}
           captionOffset={caption_offset}
@@ -463,13 +483,15 @@ export const EditedReel: React.FC<EditedReelProps> = ({
               captions (it lives in the top third). Its own Sequence so it only
               exists for the opening window and fades itself out. ═══ */}
       {hook?.text && (() => {
-        const hookFrames = Math.round(fps * 3);
+        const hookFrom = Math.max(0, Math.round((hook.start ?? 0) * fps));
+        const hookEnd = Math.round((hook.end ?? (hook.start ?? 0) + 3) * fps);
+        const hookFrames = Math.max(1, Math.min(hookEnd, durationInFrames) - hookFrom);
         return (
-          <Sequence from={0} durationInFrames={hookFrames}>
+          <Sequence from={hookFrom} durationInFrames={hookFrames}>
             <HookText
               hook={hook.text}
               highlight={hook.highlight}
-              variant={hook.variant}
+              variant={hook.variant ?? hook.style}
               brandColor={brand_color}
               durationInFrames={hookFrames}
             />
@@ -506,7 +528,10 @@ export const EditedReel: React.FC<EditedReelProps> = ({
   );
 };
 
-/** Duration calculator — used by Root.tsx calculateMetadata */
-export function calculateEditDuration(durationSeconds: number, fps: number): number {
-  return Math.ceil(durationSeconds * fps) + fps; // +1s buffer
+/** Duration calculator — used by Root.tsx calculateMetadata.
+ *  Exactly the video's frames: the old `ceil(s*fps) + fps` "+1s buffer" held
+ *  the last frame for a second (a frozen tail with silence) on every export. */
+export function calculateEditDuration(durationSeconds: number, fps: number, durationFrames?: number): number {
+  if (Number.isInteger(durationFrames) && (durationFrames as number) > 0) return durationFrames as number;
+  return Math.max(1, Math.round(durationSeconds * fps));
 }

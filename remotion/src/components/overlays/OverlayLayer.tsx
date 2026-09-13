@@ -78,6 +78,7 @@ import { NotificationBurst } from "./scenes/NotificationBurst";
 import { MagnetPull } from "./scenes/MagnetPull";
 import { RetentionCurve } from "./scenes/RetentionCurve";
 import { TimelineScrub } from "./scenes/TimelineScrub";
+import { CustomLayers, type CustomLayersScene } from "./scenes/CustomLayers";
 
 import type { AnyOverlayScene } from "./types";
 
@@ -86,6 +87,10 @@ interface OverlayLayerProps {
 }
 
 export const OverlayLayer: React.FC<OverlayLayerProps> = ({ scene }) => {
+  // Data-described one-off scene (docs/SCENES.md → custom_layers)
+  if ((scene as { type?: string }).type === "custom_layers") {
+    return <CustomLayers scene={scene as unknown as CustomLayersScene} />;
+  }
   switch (scene.type) {
     case "glass_info_card":
       return <GlassInfoCard scene={scene} />;

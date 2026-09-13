@@ -16,8 +16,57 @@ export interface WordTimestamp {
   emphasis?: boolean;
 }
 
+/** A caption group planned outside the renderer (scripts/reelkit/captions.py →
+ *  work/captions.json → props.caption_groups). Seconds on the edited timeline.
+ *  The group is on screen for [start, end); `break_after` forces the line
+ *  break after that word index. */
+export interface CaptionGroup {
+  id?: string;
+  start: number;
+  end: number;
+  break_after?: number | null;
+  words: WordTimestamp[];
+}
+
+// ── Bidi runs ────────────────────────────────────────────────────────────────
+// The flex layouts lay out one <span> per word with direction:rtl, so a run of
+// English words was reversed ("Claude Code" rendered as "Code Claude", read
+// left-to-right). Consecutive LTR tokens (Latin letters or digits, no Hebrew)
+// are wrapped in ONE ltr-isolated inline-flex run; Hebrew keeps RTL order.
+const HEBREW_CHAR = /[\u0590-\u05FF]/;
+const LTR_CHAR = /[A-Za-z0-9]/;
+export function isLtrToken(word: string): boolean {
+  const w = (word ?? "").trim();
+  return w.length > 0 && !HEBREW_CHAR.test(w) && LTR_CHAR.test(w);
+}
+
+type Run<T> = { ltr: boolean; items: T[] };
+export function toBidiRuns<T>(items: T[], text: (item: T) => string): Run<T>[] {
+  const runs: Run<T>[] = [];
+  for (const it of items) {
+    const ltr = isLtrToken(text(it));
+    const last = runs[runs.length - 1];
+    if (last && last.ltr && ltr) last.items.push(it);
+    else runs.push({ ltr, items: [it] });
+  }
+  return runs;
+}
+
+/** Split a group's words into display lines (explicit break, else one flex-wrap line). */
+function groupLines(g: CaptionGroup): WordTimestamp[][] {
+  const ba = g.break_after;
+  if (ba === null || ba === undefined || ba < 0 || ba >= g.words.length - 1) return [g.words];
+  return [g.words.slice(0, ba + 1), g.words.slice(ba + 1)];
+}
+
+function activeGroupAt(groups: CaptionGroup[], t: number): CaptionGroup | undefined {
+  return groups.find((g) => t >= g.start && t < g.end);
+}
+
 interface CaptionsProps {
   words: WordTimestamp[];
+  /** Planned groups — when present they are used as-is (no regrouping). */
+  groups?: CaptionGroup[];
   /** "none" disables burned captions entirely (user toggled subtitles off, or
    *  a reference brief banned them) — the component renders nothing. */
   style: "tiktok" | "classic" | "highlight" | "white_card" | "cinematic" | "none";
@@ -74,105 +123,129 @@ function groupWordsByPauseAndLength(
 
 // ── Highlight style: current word in brand color ──────────────────────────────
 
-const HighlightCaptions: React.FC<{ words: WordTimestamp[]; brandColor: string }> = ({
+const HighlightWord: React.FC<{ w: WordTimestamp; brandColor: string }> = ({ w, brandColor }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const isActive = frame >= w.start * fps && frame < w.end * fps + 3;
+  const isPast   = frame >= w.end * fps + 3;
+  const wordFrame = Math.max(0, frame - w.start * fps);
+  const emph = w.emphasis === true;
+  // Emphasis via transform-scale ONLY (transforms don't reflow layout), so the
+  // active word never changes the line height. Peak scale stays modest:
+  // transform:scale reserves no layout width, and 1.26 collided with the
+  // neighbouring words ("jammed captions"). 1.15/1.10 still reads as a pop.
+  const activeScale = isActive
+    ? spring({ frame: wordFrame, fps, config: { damping: 12, stiffness: 260 }, from: 0.9, to: emph ? 1.15 : 1.10 })
+    : emph ? 1.06 : 1.0;
+  return (
+    <span
+      style={{
+        fontFamily: "'Heebo', sans-serif",
+        fontWeight: 900,
+        fontSize: 70,
+        lineHeight: 1.25,
+        color: isActive ? brandColor : isPast ? (emph ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.68)") : "#FFFFFF",
+        // Heavy black outline (paintOrder keeps the fill crisp) — readable over any footage.
+        WebkitTextStroke: "6px #000000",
+        paintOrder: "stroke fill",
+        textShadow: "0 3px 10px rgba(0,0,0,0.55)",
+        display: "inline-block",
+        transform: `scale(${activeScale})`,
+        transformOrigin: "center bottom",
+        margin: "0 16px",
+        letterSpacing: "-0.01em",
+        unicodeBidi: "isolate",
+      }}
+    >
+      {w.word}
+    </span>
+  );
+};
+
+/** One line of words: Hebrew flows RTL, each LTR run is kept left-to-right. */
+const WordLine: React.FC<{
+  words: WordTimestamp[];
+  render: (w: WordTimestamp, key: string) => React.ReactNode;
+  lineKey: string;
+}> = ({ words, render, lineKey }) => (
+  <>
+    {toBidiRuns(words, (w) => w.word).map((run, r) =>
+      run.ltr && run.items.length > 1 ? (
+        <span
+          key={`${lineKey}-run${r}`}
+          style={{ display: "inline-flex", direction: "ltr", unicodeBidi: "isolate", flexWrap: "nowrap" }}
+        >
+          {run.items.map((w, i) => render(w, `${lineKey}-${r}-${i}`))}
+        </span>
+      ) : (
+        run.items.map((w, i) => render(w, `${lineKey}-${r}-${i}`))
+      )
+    )}
+  </>
+);
+
+const HighlightBlock: React.FC<{ lines: WordTimestamp[][]; brandColor: string; opacity: number }> = ({
+  lines,
+  brandColor,
+  opacity,
+}) => (
+  <AbsoluteFill>
+    <div
+      style={{
+        position: "absolute",
+        bottom: 400,
+        left: 28,
+        right: 28,
+        opacity,
+        direction: "rtl",
+        textAlign: "center",
+        lineHeight: 1.3,
+        // Fixed 2-line height, bottom-aligned: 1-line vs 2-line groups share a baseline.
+        minHeight: 200,
+        display: "flex",
+        flexWrap: "wrap",
+        alignContent: "flex-end",
+        justifyContent: "center",
+      }}
+    >
+      {lines.map((line, li) => (
+        <React.Fragment key={`l${li}`}>
+          {li > 0 && <div style={{ flexBasis: "100%", height: 0 }} />}
+          <WordLine
+            words={line}
+            lineKey={`l${li}`}
+            render={(w, key) => <HighlightWord key={key} w={w} brandColor={brandColor} />}
+          />
+        </React.Fragment>
+      ))}
+    </div>
+  </AbsoluteFill>
+);
+
+const HighlightCaptions: React.FC<{ words: WordTimestamp[]; brandColor: string; groups?: CaptionGroup[] }> = ({
   words,
   brandColor,
+  groups,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const currentIdx = words.findIndex((w) => {
-    return frame >= w.start * fps && frame < w.end * fps + 3;
-  });
+  if (groups && groups.length) {
+    const g = activeGroupAt(groups, frame / fps);
+    if (!g) return null;
+    const opacity = interpolate(frame - g.start * fps, [0, 4], [0, 1], { extrapolateRight: "clamp" });
+    return <HighlightBlock lines={groupLines(g)} brandColor={brandColor} opacity={opacity} />;
+  }
 
+  // Legacy props (words only): mechanical grouping, visible while a word is active.
+  const currentIdx = words.findIndex((w) => frame >= w.start * fps && frame < w.end * fps + 3);
   if (currentIdx === -1) return null;
-
-  // Group with smart length-aware splitting (28 chars max per group)
-  const groups = groupWordsByPauseAndLength(words, 0.5, 5, 28);
-
+  const legacy = groupWordsByPauseAndLength(words, 0.5, 5, 28);
   const currentWord = words[currentIdx];
-  const activeGroup = groups.find((g) => g.some((w) => w === currentWord));
-
+  const activeGroup = legacy.find((g) => g.some((w) => w === currentWord));
   if (!activeGroup) return null;
-
-  const groupStartFrame = activeGroup[0].start * fps;
-  const groupOpacity = interpolate(frame - groupStartFrame, [0, 5], [0, 1], {
-    extrapolateRight: "clamp",
-  });
-
-  return (
-    <AbsoluteFill>
-      <div
-        style={{
-          position: "absolute",
-          bottom: 400,
-          left: 28,
-          right: 28,
-          opacity: groupOpacity,
-          direction: "rtl",
-          textAlign: "center",
-          lineHeight: 1.3,
-          // Reserve a fixed 2-line height and bottom-align so 1-line vs 2-line
-          // groups always sit on the same baseline — no vertical jumping.
-          minHeight: 200,
-          display: "flex",
-          flexWrap: "wrap",
-          alignContent: "flex-end",
-          justifyContent: "center",
-        }}
-      >
-        {activeGroup.map((w, i) => {
-          const isActive = frame >= w.start * fps && frame < w.end * fps + 3;
-          const isPast   = frame >= w.end * fps + 3;
-
-          const wordFrame = Math.max(0, frame - w.start * fps);
-          const emph = w.emphasis === true;
-          // Emphasis via transform-scale ONLY (transforms don't reflow layout),
-          // so the active word never changes the line height — no vertical
-          // bobbing. Font size stays constant. Key words (emph) pop harder when
-          // spoken and keep a slightly larger baseline so the eye lands on them.
-          // Peak scale is deliberately modest: transform:scale is paint-only and
-          // reserves NO layout width, so an oversized active word's pixels spill
-          // past its margin box and collide with the neighbouring words (the
-          // "jammed captions" bug). 1.15/1.10 still reads as a clear pop while
-          // staying inside the widened 16px margin below. (Was 1.26/1.12.)
-          const activeScale = isActive
-            ? spring({ frame: wordFrame, fps, config: { damping: 12, stiffness: 260 }, from: 0.9, to: emph ? 1.15 : 1.10 })
-            : emph ? 1.06 : 1.0;
-
-          return (
-            <span
-              key={i}
-              style={{
-                fontFamily: "'Heebo', sans-serif",
-                fontWeight: 900,
-                fontSize: 70,
-                lineHeight: 1.25,
-                color: isActive ? brandColor : isPast ? (emph ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.68)") : "#FFFFFF",
-                // Heavy black outline (paintOrder keeps the fill crisp) is the
-                // 2026 look AND makes captions readable over ANY B-roll, light
-                // or dark — no scrim needed. A soft shadow adds lift.
-                WebkitTextStroke: "6px #000000",
-                paintOrder: "stroke fill",
-                textShadow: "0 3px 10px rgba(0,0,0,0.55)",
-                display: "inline-block",
-                transform: `scale(${activeScale})`,
-                transformOrigin: "center bottom",
-                margin: "0 16px",
-                letterSpacing: "-0.01em",
-                // Isolate each word's bidi so a Latin number ("1,000", "80%")
-                // renders left-to-right on its own instead of being reordered by
-                // the surrounding RTL Hebrew (was showing as "000,1").
-                unicodeBidi: "isolate",
-              }}
-            >
-              {w.word}
-            </span>
-          );
-        })}
-      </div>
-    </AbsoluteFill>
-  );
+  const opacity = interpolate(frame - activeGroup[0].start * fps, [0, 5], [0, 1], { extrapolateRight: "clamp" });
+  return <HighlightBlock lines={[activeGroup]} brandColor={brandColor} opacity={opacity} />;
 };
 
 // ── TikTok style: one word at a time, large, centered ─────────────────────────
@@ -248,31 +321,22 @@ const TikTokCaptions: React.FC<{ words: WordTimestamp[]; brandColor: string }> =
 
 // ── Classic style: 2-4 words at once, bottom subtitle bar ─────────────────────
 
-const ClassicCaptions: React.FC<{ words: WordTimestamp[]; brandColor: string }> = ({
+const ClassicCaptions: React.FC<{ words: WordTimestamp[]; brandColor: string; groups?: CaptionGroup[] }> = ({
   words,
+  groups,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  if (words.length === 0) return null;
+  if (words.length === 0 && !(groups && groups.length)) return null;
 
-  // Use smart grouping: max 4 words OR 24 chars, break on pauses
-  const chunks = groupWordsByPauseAndLength(words, 0.4, 4, 24).map((slice) => ({
-    words: slice,
-    start: slice[0].start,
-    end:   slice[slice.length - 1].end,
-  }));
-
-  const activeChunk = chunks.find((c) => {
-    return frame >= c.start * fps && frame < c.end * fps + fps * 0.3;
-  });
-
+  const activeChunk = pickChunk(words, groups, frame / fps, 0.4, 4, 24);
   if (!activeChunk) return null;
 
   const chunkStartFrame = activeChunk.start * fps;
   const opacity    = interpolate(frame - chunkStartFrame, [0, 5], [0, 1], { extrapolateRight: "clamp" });
   const translateY = interpolate(frame - chunkStartFrame, [0, 8], [12, 0], { extrapolateRight: "clamp" });
-  const chunkText  = activeChunk.words.map((w) => w.word).join(" ");
+  const chunkText  = chunkNode(activeChunk);
 
   return (
     <AbsoluteFill>
@@ -317,33 +381,47 @@ const ClassicCaptions: React.FC<{ words: WordTimestamp[]; brandColor: string }> 
   );
 };
 
+/** Classic / white-card chunk: the planned group, or the legacy mechanical one. */
+function pickChunk(
+  words: WordTimestamp[], groups: CaptionGroup[] | undefined, t: number,
+  maxGap: number, maxPer: number, maxChars: number,
+): CaptionGroup | undefined {
+  if (groups && groups.length) return activeGroupAt(groups, t);
+  const chunks = groupWordsByPauseAndLength(words, maxGap, maxPer, maxChars).map((slice) => ({
+    words: slice, start: slice[0].start, end: slice[slice.length - 1].end + 0.3,
+  }));
+  return chunks.find((c) => t >= c.start && t < c.end);
+}
+
+/** Plain-text chunk (one <p>, the browser's bidi handles mixed text) with the planned line break. */
+function chunkNode(g: CaptionGroup): React.ReactNode {
+  const lines = groupLines(g);
+  return lines.map((line, i) => (
+    <React.Fragment key={i}>
+      {i > 0 && <br />}
+      {line.map((w) => w.word).join(" ")}
+    </React.Fragment>
+  ));
+}
+
 // ── White Card style: clean white pill cards, black text — eilon.grouper style ─
 
-const WhiteCardCaptions: React.FC<{ words: WordTimestamp[]; brandColor: string }> = ({
+const WhiteCardCaptions: React.FC<{ words: WordTimestamp[]; brandColor: string; groups?: CaptionGroup[] }> = ({
   words,
+  groups,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  if (words.length === 0) return null;
+  if (words.length === 0 && !(groups && groups.length)) return null;
 
-  // Group words into small chunks (3-4 words max, break on pauses)
-  const chunks = groupWordsByPauseAndLength(words, 0.4, 4, 22).map((slice) => ({
-    words: slice,
-    start: slice[0].start,
-    end:   slice[slice.length - 1].end,
-  }));
-
-  const activeChunk = chunks.find((c) => {
-    return frame >= c.start * fps && frame < c.end * fps + fps * 0.3;
-  });
-
+  const activeChunk = pickChunk(words, groups, frame / fps, 0.4, 4, 22);
   if (!activeChunk) return null;
 
   const chunkStartFrame = activeChunk.start * fps;
   const opacity    = interpolate(frame - chunkStartFrame, [0, 4], [0, 1], { extrapolateRight: "clamp" });
   const scaleIn    = spring({ frame: Math.max(0, frame - chunkStartFrame), fps, config: { damping: 14, stiffness: 260 }, from: 0.9, to: 1.0 });
-  const chunkText  = activeChunk.words.map((w) => w.word).join(" ");
+  const chunkText  = chunkNode(activeChunk);
 
   return (
     <AbsoluteFill>
@@ -394,30 +472,39 @@ const WhiteCardCaptions: React.FC<{ words: WordTimestamp[]; brandColor: string }
 // Each word fades in + slides up individually with staggered timing.
 // Key words (longer or emphasized) get the brand/gold accent color.
 
-const CinematicCaptions: React.FC<{ words: WordTimestamp[]; brandColor: string }> = ({
+const CinematicCaptions: React.FC<{ words: WordTimestamp[]; brandColor: string; groups?: CaptionGroup[] }> = ({
   words,
   brandColor,
+  groups: planned,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  // Group into small natural phrases (3-5 words)
-  const groups = groupWordsByPauseAndLength(words, 0.45, 5, 26);
-
-  // Find active group
-  const activeGroupIdx = groups.findIndex((g) => {
-    const gStart = g[0].start * fps;
-    const gEnd = g[g.length - 1].end * fps + fps * 0.5;
-    return frame >= gStart && frame < gEnd;
-  });
-
-  if (activeGroupIdx === -1) return null;
-  const activeGroup = groups[activeGroupIdx];
+  let activeGroup: WordTimestamp[];
+  let lines: WordTimestamp[][];
+  if (planned && planned.length) {
+    const g = activeGroupAt(planned, frame / fps);
+    if (!g) return null;
+    activeGroup = g.words;
+    lines = groupLines(g);
+  } else {
+    // Legacy: small natural phrases (3-5 words)
+    const groups = groupWordsByPauseAndLength(words, 0.45, 5, 26);
+    const activeGroupIdx = groups.findIndex((g) => {
+      const gStart = g[0].start * fps;
+      const gEnd = g[g.length - 1].end * fps + fps * 0.5;
+      return frame >= gStart && frame < gEnd;
+    });
+    if (activeGroupIdx === -1) return null;
+    activeGroup = groups[activeGroupIdx];
+    lines = [activeGroup];
+  }
   const groupStart = activeGroup[0].start;
 
-  // Decide which word in the group gets the accent color.
-  // Heuristic: the longest word, or the 2nd word if group has 3+.
+  // Accent word: the planned emphasis if any, else the longest word.
   const accentIdx = (() => {
+    const planned = activeGroup.findIndex((w) => w.emphasis === true);
+    if (planned >= 0) return planned;
     if (activeGroup.length <= 1) return -1; // no accent for single words
     let longestIdx = 0;
     let longestLen = 0;
@@ -441,58 +528,50 @@ const CinematicCaptions: React.FC<{ words: WordTimestamp[]; brandColor: string }
           display: "flex",
           flexWrap: "wrap",
           justifyContent: "center",
-          gap: "0 8px",
         }}
       >
-        {activeGroup.map((w, i) => {
-          // Each word enters with its own staggered delay
-          const wordDelay = i * 0.12; // 120ms stagger between words
-          const wordEntryFrame = (groupStart + wordDelay) * fps;
-          const framesSinceEntry = Math.max(0, frame - wordEntryFrame);
-
-          // Fade in + slide up
-          const wordOpacity = interpolate(
-            framesSinceEntry, [0, 6], [0, 1],
-            { extrapolateRight: "clamp" }
-          );
-          const slideUp = interpolate(
-            framesSinceEntry, [0, 8], [18, 0],
-            { extrapolateRight: "clamp" }
-          );
-
-          // Subtle scale spring on entry
-          const entryScale = spring({
-            frame: framesSinceEntry,
-            fps,
-            config: { damping: 14, stiffness: 200 },
-            from: 0.92,
-            to: 1.0,
-          });
-
-          const isAccent = i === accentIdx;
-
-          return (
-            <span
-              key={i}
-              style={{
-                fontFamily: "'Heebo', sans-serif",
-                fontWeight: 800,
-                fontSize: 72,
-                color: isAccent ? brandColor : "#FFFFFF",
-                textShadow: isAccent
-                  ? `0 2px 20px rgba(0,0,0,0.7), 0 0 40px ${brandColor}40`
-                  : "0 2px 16px rgba(0,0,0,0.85), 0 4px 32px rgba(0,0,0,0.5)",
-                display: "inline-block",
-                opacity: wordOpacity,
-                transform: `translateY(${slideUp}px) scale(${entryScale})`,
-                transformOrigin: "center bottom",
-                letterSpacing: "-0.5px",
+        {lines.map((line, li) => (
+          <React.Fragment key={`cl${li}`}>
+            {li > 0 && <div style={{ flexBasis: "100%", height: 0 }} />}
+            <WordLine
+              words={line}
+              lineKey={`cl${li}`}
+              render={(w, key) => {
+                const i = activeGroup.indexOf(w);
+                // Each word enters with its own staggered delay
+                const wordEntryFrame = (groupStart + i * 0.12) * fps;
+                const framesSinceEntry = Math.max(0, frame - wordEntryFrame);
+                const wordOpacity = interpolate(framesSinceEntry, [0, 6], [0, 1], { extrapolateRight: "clamp" });
+                const slideUp = interpolate(framesSinceEntry, [0, 8], [18, 0], { extrapolateRight: "clamp" });
+                const entryScale = spring({ frame: framesSinceEntry, fps, config: { damping: 14, stiffness: 200 }, from: 0.92, to: 1.0 });
+                const isAccent = i === accentIdx;
+                return (
+                  <span
+                    key={key}
+                    style={{
+                      fontFamily: "'Heebo', sans-serif",
+                      fontWeight: 800,
+                      fontSize: 72,
+                      color: isAccent ? brandColor : "#FFFFFF",
+                      textShadow: isAccent
+                        ? `0 2px 20px rgba(0,0,0,0.7), 0 0 40px ${brandColor}40`
+                        : "0 2px 16px rgba(0,0,0,0.85), 0 4px 32px rgba(0,0,0,0.5)",
+                      display: "inline-block",
+                      opacity: wordOpacity,
+                      transform: `translateY(${slideUp}px) scale(${entryScale})`,
+                      transformOrigin: "center bottom",
+                      letterSpacing: "-0.5px",
+                      margin: "0 4px",
+                      unicodeBidi: "isolate",
+                    }}
+                  >
+                    {w.word}
+                  </span>
+                );
               }}
-            >
-              {w.word}
-            </span>
-          );
-        })}
+            />
+          </React.Fragment>
+        ))}
       </div>
     </AbsoluteFill>
   );
@@ -561,6 +640,7 @@ function mergeNumberTokens(words: WordTimestamp[]): WordTimestamp[] {
 
 export const Captions: React.FC<CaptionsProps> = ({
   words: rawWords,
+  groups,
   style,
   brandColor = "#E0701E",
   captionOffset = 0,
@@ -572,7 +652,8 @@ export const Captions: React.FC<CaptionsProps> = ({
   const { fps } = useVideoConfig();
   // "none" = captions disabled (user opted out / brief banned). Render nothing.
   if (style === "none") return null;
-  if (!rawWords || rawWords.length === 0) return null;
+  const hasGroups = !!(groups && groups.length);
+  if (!hasGroups && (!rawWords || rawWords.length === 0)) return null;
   // Playbook §4.1 — "zero captions during full-frame; the UI is the text":
   // inside any mute window (seconds) captions render NOTHING. Windows are
   // computed by the mounting composition from editing_plan.broll_scenes using
@@ -584,14 +665,18 @@ export const Captions: React.FC<CaptionsProps> = ({
       if (t >= w.start && t < w.end) return null;
     }
   }
-  const words = mergeNumberTokens(rawWords);
+  // Planned groups already carry merged numbers; the words-only path merges here.
+  const words = hasGroups
+    ? (groups as CaptionGroup[]).flatMap((g) => g.words)
+    : mergeNumberTokens(rawWords);
+  const g = hasGroups ? groups : undefined;
 
   const inner =
     style === "tiktok"     ? <TikTokCaptions     words={words} brandColor={brandColor} /> :
-    style === "classic"    ? <ClassicCaptions    words={words} brandColor={brandColor} /> :
-    style === "white_card" ? <WhiteCardCaptions  words={words} brandColor={brandColor} /> :
-    style === "cinematic"  ? <CinematicCaptions  words={words} brandColor={brandColor} /> :
-    /* highlight (default) */ <HighlightCaptions words={words} brandColor={brandColor} />;
+    style === "classic"    ? <ClassicCaptions    words={words} brandColor={brandColor} groups={g} /> :
+    style === "white_card" ? <WhiteCardCaptions  words={words} brandColor={brandColor} groups={g} /> :
+    style === "cinematic"  ? <CinematicCaptions  words={words} brandColor={brandColor} groups={g} /> :
+    /* highlight (default) */ <HighlightCaptions words={words} brandColor={brandColor} groups={g} />;
 
   // One uniform vertical shift for every style — positive moves captions DOWN.
   // translateY on a wrapping AbsoluteFill moves the absolutely-positioned

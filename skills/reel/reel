@@ -1,0 +1,13 @@
+#!/bin/sh
+# Launcher for the reel skill. SKILL.md calls: sh "${CLAUDE_SKILL_DIR}/reel" <command>
+# Walks up from this file to the skill root (the folder with scripts/reel.py), so it
+# works both as a plugin (skills/reel/) and as a clone (.claude/skills/reel/).
+d=$(cd "$(dirname "$0")" && pwd -P)
+while [ "$d" != "/" ]; do
+  if [ -f "$d/scripts/reel.py" ]; then
+    exec python3 "$d/scripts/reel.py" "$@"
+  fi
+  d=$(dirname "$d")
+done
+echo "reel: scripts/reel.py not found above $(dirname "$0")" >&2
+exit 1
